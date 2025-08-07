@@ -850,202 +850,198 @@ public class UsbExternalCamera extends CordovaPlugin {
         }
         return true;
     }
-}
-private boolean debugCameraCapabilities(CallbackContext callbackContext) {
-    try {
-        if (externalCameraId != null) {
-            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(externalCameraId);
-            
-            // Verifica modalità AF disponibili
-            int[] afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES);
-            StringBuilder afInfo = new StringBuilder("Available AF modes: ");
-            if (afModes != null) {
-                for (int mode : afModes) {
-                    afInfo.append(mode).append(" ");
+    private boolean debugCameraCapabilities(CallbackContext callbackContext) {
+        try {
+            if (externalCameraId != null) {
+                CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(externalCameraId);
+                
+                // Verifica modalità AF disponibili
+                int[] afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES);
+                StringBuilder afInfo = new StringBuilder("Available AF modes: ");
+                if (afModes != null) {
+                    for (int mode : afModes) {
+                        afInfo.append(mode).append(" ");
+                    }
                 }
+                Log.d(TAG, afInfo.toString());
+                
+                // Verifica distanza focus
+                Float minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+                Log.d(TAG, "Min focus distance: " + minFocusDistance);
+                
+                // Verifica capacità hardware
+                Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+                Log.d(TAG, "Hardware level: " + hwLevel);
+                
+                callbackContext.success("Debug info logged");
+            } else {
+                callbackContext.error("No camera selected");
             }
-            Log.d(TAG, afInfo.toString());
-            
-            // Verifica distanza focus
-            Float minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
-            Log.d(TAG, "Min focus distance: " + minFocusDistance);
-            
-            // Verifica capacità hardware
-            Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
-            Log.d(TAG, "Hardware level: " + hwLevel);
-            
-            callbackContext.success("Debug info logged");
-        } else {
-            callbackContext.error("No camera selected");
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting camera capabilities", e);
+            callbackContext.error("Failed to get camera capabilities: " + e.getMessage());
         }
-    } catch (Exception e) {
-        Log.e(TAG, "Error getting camera capabilities", e);
-        callbackContext.error("Failed to get camera capabilities: " + e.getMessage());
+        return true;
     }
-    return true;
-}
-/**
- * Inizializzazione semplificata che sfrutta il rilevamento nativo di Android
- * Rileva automaticamente webcam USB senza gestione diretta USB
- */
-private boolean initSimple(CallbackContext callbackContext) {
-    try {
-        cameraManager = (CameraManager) cordova.getActivity().getSystemService(Context.CAMERA_SERVICE);
-        
-        // Enumera tutte le camere disponibili (incluse USB)
-        String[] cameraIds = cameraManager.getCameraIdList();
-        Log.d(TAG, "Found " + cameraIds.length + " cameras total");
-        
-        // Trova automaticamente la prima webcam USB esterna
-        for (String cameraId : cameraIds) {
-            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+    /**
+     * Inizializzazione semplificata che sfrutta il rilevamento nativo di Android
+     * Rileva automaticamente webcam USB senza gestione diretta USB
+     */
+    private boolean initSimple(CallbackContext callbackContext) {
+        try {
+            cameraManager = (CameraManager) cordova.getActivity().getSystemService(Context.CAMERA_SERVICE);
             
-            // Verifica se è una camera esterna (USB)
-            Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
-            Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+            // Enumera tutte le camere disponibili (incluse USB)
+            String[] cameraIds = cameraManager.getCameraIdList();
+            Log.d(TAG, "Found " + cameraIds.length + " cameras total");
             
-            // Le webcam USB sono tipicamente LENS_FACING_EXTERNAL
-            if (lensFacing != null && lensFacing == CameraCharacteristics.LENS_FACING_EXTERNAL) {
-                externalCameraId = cameraId;
-                Log.d(TAG, "Found USB camera: " + cameraId);
-                
-                // Ottieni informazioni sulla camera
-                JSONObject cameraInfo = getSimpleCameraInfo(characteristics, cameraId);
-                
-                callbackContext.success(cameraInfo);
-                return true;
-            }
-        }
-        
-        // Se non trova LENS_FACING_EXTERNAL, cerca camera con caratteristiche USB
-        for (String cameraId : cameraIds) {
-            if (isLikelyUsbCamera(cameraId)) {
-                externalCameraId = cameraId;
-                Log.d(TAG, "Found likely USB camera: " + cameraId);
-                
+            // Trova automaticamente la prima webcam USB esterna
+            for (String cameraId : cameraIds) {
                 CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
-                JSONObject cameraInfo = getSimpleCameraInfo(characteristics, cameraId);
                 
-                callbackContext.success(cameraInfo);
-                return true;
-            }
-        }
-        
-        callbackContext.error("No USB camera found");
-        
-    } catch (Exception e) {
-        Log.e(TAG, "Error in initSimple", e);
-        callbackContext.error("Failed to initialize: " + e.getMessage());
-    }
-    return true;
-}
-
-/**
- * Verifica se una camera è probabilmente USB basandosi sull'ID
- */
-private boolean isLikelyUsbCamera(String cameraId) {
-    try {
-        CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
-        
-        // Le webcam USB hanno spesso:
-        // - Hardware level LIMITED
-        // - Pochi formati supportati
-        // - ID numerici alti (2, 3, 4...)
-        
-        Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
-        if (hwLevel != null && hwLevel == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED) {
-            
-            // Verifica se l'ID è numerico e > 1 (tipico delle USB)
-            try {
-                int id = Integer.parseInt(cameraId);
-                if (id >= 2) {
-                    Log.d(TAG, "Camera " + cameraId + " likely USB (ID >= 2, LIMITED level)");
+                // Verifica se è una camera esterna (USB)
+                Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
+                Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+                
+                // Le webcam USB sono tipicamente LENS_FACING_EXTERNAL
+                if (lensFacing != null && lensFacing == CameraCharacteristics.LENS_FACING_EXTERNAL) {
+                    externalCameraId = cameraId;
+                    Log.d(TAG, "Found USB camera: " + cameraId);
+                    
+                    // Ottieni informazioni sulla camera
+                    JSONObject cameraInfo = getSimpleCameraInfo(characteristics, cameraId);
+                    
+                    callbackContext.success(cameraInfo);
                     return true;
                 }
-            } catch (NumberFormatException e) {
-                // ID non numerico, potrebbe essere USB con nome specifico
-                Log.d(TAG, "Camera " + cameraId + " has non-numeric ID, checking other criteria");
             }
+            
+            // Se non trova LENS_FACING_EXTERNAL, cerca camera con caratteristiche USB
+            for (String cameraId : cameraIds) {
+                if (isLikelyUsbCamera(cameraId)) {
+                    externalCameraId = cameraId;
+                    Log.d(TAG, "Found likely USB camera: " + cameraId);
+                    
+                    CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+                    JSONObject cameraInfo = getSimpleCameraInfo(characteristics, cameraId);
+                    
+                    callbackContext.success(cameraInfo);
+                    return true;
+                }
+            }
+            
+            callbackContext.error("No USB camera found");
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error in initSimple", e);
+            callbackContext.error("Failed to initialize: " + e.getMessage());
         }
-        
-        return false;
-    } catch (Exception e) {
-        Log.e(TAG, "Error checking if camera is USB: " + cameraId, e);
-        return false;
+        return true;
     }
-}
 
-/**
- * Ottieni informazioni essenziali sulla camera
- */
-private JSONObject getSimpleCameraInfo(CameraCharacteristics characteristics, String cameraId) {
-    JSONObject info = new JSONObject();
-    try {
-        info.put("cameraId", cameraId);
-        
-        // Facing
-        Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
-        String facing = "unknown";
-        if (lensFacing != null) {
-            switch (lensFacing) {
-                case CameraCharacteristics.LENS_FACING_FRONT:
-                    facing = "front";
-                    break;
-                case CameraCharacteristics.LENS_FACING_BACK:
-                    facing = "back";
-                    break;
-                case CameraCharacteristics.LENS_FACING_EXTERNAL:
-                    facing = "external";
-                    break;
+    /**
+     * Verifica se una camera è probabilmente USB basandosi sull'ID
+     */
+    private boolean isLikelyUsbCamera(String cameraId) {
+        try {
+            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+            
+            // Le webcam USB hanno spesso:
+            // - Hardware level LIMITED
+            // - Pochi formati supportati
+            // - ID numerici alti (2, 3, 4...)
+            
+            Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+            if (hwLevel != null && hwLevel == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED) {
+                
+                // Verifica se l'ID è numerico e > 1 (tipico delle USB)
+                try {
+                    int id = Integer.parseInt(cameraId);
+                    if (id >= 2) {
+                        Log.d(TAG, "Camera " + cameraId + " likely USB (ID >= 2, LIMITED level)");
+                        return true;
+                    }
+                } catch (NumberFormatException e) {
+                    // ID non numerico, potrebbe essere USB con nome specifico
+                    Log.d(TAG, "Camera " + cameraId + " has non-numeric ID, checking other criteria");
+                }
             }
+            
+            return false;
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking if camera is USB: " + cameraId, e);
+            return false;
         }
-        info.put("facing", facing);
-        
-        // Hardware level
-        Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
-        String level = "unknown";
-        if (hwLevel != null) {
-            switch (hwLevel) {
-                case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED:
-                    level = "limited";
-                    break;
-                case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL:
-                    level = "full";
-                    break;
-                case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY:
-                    level = "legacy";
-                    break;
-            }
-        }
-        info.put("hardwareLevel", level);
-        
-        // Modalità autofocus supportate
-        int[] afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES);
-        JSONArray afArray = new JSONArray();
-        if (afModes != null) {
-            for (int mode : afModes) {
-                afArray.put(mode);
-            }
-        }
-        info.put("autofocusModes", afArray);
-        
-        // Risoluzione massima
-        StreamConfigurationMap configMap = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-        if (configMap != null) {
-            Size[] sizes = configMap.getOutputSizes(ImageFormat.JPEG);
-            if (sizes != null && sizes.length > 0) {
-                Size maxSize = sizes[0]; // Prima è solitamente la più grande
-                info.put("maxWidth", maxSize.getWidth());
-                info.put("maxHeight", maxSize.getHeight());
-            }
-        }
-        
-    } catch (Exception e) {
-        Log.e(TAG, "Error getting camera info", e);
     }
-    return info;
+
+    /**
+     * Ottieni informazioni essenziali sulla camera
+     */
+    private JSONObject getSimpleCameraInfo(CameraCharacteristics characteristics, String cameraId) {
+        JSONObject info = new JSONObject();
+        try {
+            info.put("cameraId", cameraId);
+            
+            // Facing
+            Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
+            String facing = "unknown";
+            if (lensFacing != null) {
+                switch (lensFacing) {
+                    case CameraCharacteristics.LENS_FACING_FRONT:
+                        facing = "front";
+                        break;
+                    case CameraCharacteristics.LENS_FACING_BACK:
+                        facing = "back";
+                        break;
+                    case CameraCharacteristics.LENS_FACING_EXTERNAL:
+                        facing = "external";
+                        break;
+                }
+            }
+            info.put("facing", facing);
+            
+            // Hardware level
+            Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+            String level = "unknown";
+            if (hwLevel != null) {
+                switch (hwLevel) {
+                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED:
+                        level = "limited";
+                        break;
+                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL:
+                        level = "full";
+                        break;
+                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY:
+                        level = "legacy";
+                        break;
+                }
+            }
+            info.put("hardwareLevel", level);
+            
+            // Modalità autofocus supportate
+            int[] afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES);
+            JSONArray afArray = new JSONArray();
+            if (afModes != null) {
+                for (int mode : afModes) {
+                    afArray.put(mode);
+                }
+            }
+            info.put("autofocusModes", afArray);
+            
+            // Risoluzione massima
+            StreamConfigurationMap configMap = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            if (configMap != null) {
+                Size[] sizes = configMap.getOutputSizes(ImageFormat.JPEG);
+                if (sizes != null && sizes.length > 0) {
+                    Size maxSize = sizes[0]; // Prima è solitamente la più grande
+                    info.put("maxWidth", maxSize.getWidth());
+                    info.put("maxHeight", maxSize.getHeight());
+                }
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting camera info", e);
+        }
+        return info;
+    } 
 }
-
-
-
-    
