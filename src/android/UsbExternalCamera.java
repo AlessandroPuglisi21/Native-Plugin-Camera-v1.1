@@ -12,7 +12,6 @@ import android.graphics.Rect;
 import android.graphics.YuvImage;
 import android.hardware.camera2.*;
 import android.hardware.camera2.params.StreamConfigurationMap;
-import android.hardware.usb.UsbManager;  // ← AGGIUNGI QUESTA RIGA
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Environment;
@@ -62,9 +61,9 @@ public class UsbExternalCamera extends CordovaPlugin {
     private int previewFps = 30;
     
     private boolean isPreviewActive = false;
-    private CallbackContext pendingOpenCallback; // Nuovo campo per memorizzare il callback
-    private JSONArray pendingOpenArgs; // Nuovo campo per memorizzare gli argomenti
-+   private boolean autofocusDisabled = false; // Flag to disable autofocus
+    private CallbackContext pendingOpenCallback;
+    private JSONArray pendingOpenArgs;
+    private boolean autofocusDisabled = false;
     
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
@@ -77,30 +76,22 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return takePhoto(callbackContext);
             case "close":
                 return closeCamera(callbackContext);
-            case "listCameras":  // ← NUOVO COMANDO
+            case "listCameras":
                 return listCameras(callbackContext);
-+           case "disableAutofocus": // ← NEW COMMAND
-+               return disableAutofocus(callbackContext);
+            case "disableAutofocus":
+                return disableAutofocus(callbackContext);
             default:
                 return false;
         }
     }
 
     private boolean openCamera(JSONArray args, CallbackContext callbackContext) throws JSONException {
-        // RIMUOVI completamente il controllo permessi per USB cameras
-        // if (!checkPermissions()) {
-        //     requestPermissions();
-        //     callbackContext.error("Camera permissions not granted");
-        //     return true;
-        // }
-
         JSONObject options = args.optJSONObject(0);
         if (options != null) {
             previewWidth = options.optInt("width", 1280);
             previewHeight = options.optInt("height", 720);
             previewFps = options.optInt("fps", 30);
             
-            // ← NUOVO: Supporta cameraId specifico
             String requestedCameraId = options.optString("cameraId", null);
             if (requestedCameraId != null && !requestedCameraId.isEmpty()) {
                 externalCameraId = requestedCameraId;
@@ -123,18 +114,10 @@ public class UsbExternalCamera extends CordovaPlugin {
         return true;
     }
     
-    // Metodo semplificato per controllo permessi USB
     private boolean checkUsbPermissions() {
-        // Per fotocamere USB esterne, controlla solo i permessi USB
         UsbManager usbManager = (UsbManager) cordova.getActivity().getSystemService(Context.USB_SERVICE);
         return usbManager != null;
     }
-    
-    // RIMUOVI o commenta questi metodi se non servono più
-    // private boolean checkPermissions() { ... }
-    // private void requestPermissions() { ... }
-    // @Override onRequestPermissionResult() { ... }
-
     
     private boolean stopPreview(CallbackContext callbackContext) {
         try {
@@ -330,14 +313,13 @@ public class UsbExternalCamera extends CordovaPlugin {
                         
                         captureSession = session;
                         try {
--                           previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-+                           if (autofocusDisabled) {
-+                               Log.d(TAG, "Setting AF_MODE_OFF for preview");
-+                               previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
-+                               previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f); // Focus to infinity
-+                           } else {
-+                               previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-+                           }
+                            if (autofocusDisabled) {
+                                Log.d(TAG, "Setting AF_MODE_OFF for preview");
+                                previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
+                                previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
+                            } else {
+                                previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                            }
                             CaptureRequest previewRequest = previewRequestBuilder.build();
                             captureSession.setRepeatingRequest(previewRequest, null, backgroundHandler);
                             isPreviewActive = true;
@@ -387,14 +369,7 @@ public class UsbExternalCamera extends CordovaPlugin {
 
             CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             captureBuilder.addTarget(stillReader.getSurface());
--           captureBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-+           if (autofocusDisabled) {
-+               Log.d(TAG, "Setting AF_MODE_OFF for photo capture");
-+               captureBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
-+               captureBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f); // Focus to infinity
-+           } else {
-+               captureBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-+           }
+            captureBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
 
             cameraDevice.createCaptureSession(Arrays.asList(stillReader.getSurface()),
                     new CameraCaptureSession.StateCallback() {
@@ -760,8 +735,6 @@ public class UsbExternalCamera extends CordovaPlugin {
         }
         return true;
     }
-}
-
     // 3. Implementare il metodo disableAutofocus
     
     /**
@@ -781,8 +754,6 @@ public class UsbExternalCamera extends CordovaPlugin {
                 CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                 builder.addTarget(imageReader.getSurface());
                 builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
-                
-                // Set manual focus to infinity for best results with external cameras
                 builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
                 
                 captureSession.setRepeatingRequest(builder.build(), null, backgroundHandler);
@@ -797,3 +768,7 @@ public class UsbExternalCamera extends CordovaPlugin {
         return true;
     }
 }
+
+
+
+    
