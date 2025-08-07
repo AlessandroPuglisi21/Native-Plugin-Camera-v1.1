@@ -49,6 +49,17 @@ var UsbCamera = {
     
     optimizeAutofocusForUsb: function(successCallback, errorCallback) {
         cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'optimizeAutofocusForUsb', []);
+    },
+    
+    setFocusDistance: function(distance, successCallback, errorCallback) {
+        if (typeof distance !== 'number' || distance < 0 || distance > 1) {
+            if (typeof errorCallback === 'function') {
+                errorCallback('Focus distance must be a number between 0.0 (infinity) and 1.0 (minimum distance)');
+            }
+            return;
+        }
+        
+        cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'setFocusDistance', [distance]);
     }
 };
 

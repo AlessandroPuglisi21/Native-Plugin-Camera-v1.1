@@ -4,6 +4,7 @@ package com.cordova.plugin;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import java.util.HashMap;
+import org.json.JSONException;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -88,6 +89,8 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return optimizeAutofocusForUsb(callbackContext);
             case "debugCapabilities":
                 return debugCameraCapabilities(callbackContext);
+            case "setFocusDistance":
+                return setFocusDistance(args, callbackContext);
             default:
                 return false;
         }
@@ -1143,6 +1146,60 @@ public class UsbExternalCamera extends CordovaPlugin {
             Log.e(TAG, "Error optimizing autofocus", e);
             callbackContext.error("Failed to optimize autofocus: " + e.getMessage());
         }
+        return true;
+    }
+
+    /**
+     * Imposta manualmente la distanza di focus
+     */
+    private boolean setFocusDistance(JSONArray args, CallbackContext callbackContext) {
+        try {
+            float focusDistance = (float) args.getDouble(0); // Valore tra 0.0 (infinito) e 1.0 (minimo)
+            
+            if (focusDistance < 0.0f || focusDistance > 1.0f) {
+                callbackContext.error("Focus distance must be between 0.0 (infinity) and 1.0 (minimum distance)");
+                return true;
+            }
+            
+            if (cameraDevice == null || captureSession == null) {
+                callbackContext.error("Camera not opened or session not active");
+                return true;
+            }
+            
+            try {
+                CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(externalCameraId);
+                Float minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+                
+                if (minFocusDistance == null || minFocusDistance == 0.0f) {
+                    callbackContext.error("Camera does not support manual focus control");
+                    return true;
+                }
+                
+                // Converti il valore normalizzato (0-1) alla distanza reale
+                float actualDistance = focusDistance * minFocusDistance;
+                
+                CaptureRequest.Builder requestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                requestBuilder.addTarget(imageReader.getSurface());
+                
+                // Imposta la modalità di messa a fuoco manuale
+                requestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
+                requestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, actualDistance);
+                
+                // Applica le impostazioni alla sessione
+                captureSession.setRepeatingRequest(requestBuilder.build(), null, backgroundHandler);
+                
+                Log.d(TAG, "Focus distance set to: " + actualDistance + " (normalized: " + focusDistance + ")");
+                callbackContext.success("Focus distance set successfully");
+                
+            } catch (CameraAccessException e) {
+                Log.e(TAG, "Error setting focus distance", e);
+                callbackContext.error("Failed to set focus distance: " + e.getMessage());
+            }
+            
+        } catch (JSONException e) {
+            callbackContext.error("Invalid focus distance parameter");
+        }
+        
         return true;
     }
 }
