@@ -41,6 +41,14 @@ var UsbCamera = {
     
     initSimple: function(successCallback, errorCallback) {
         cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'initSimple', []);
+    },
+    
+    triggerAutofocus: function(successCallback, errorCallback) {
+        cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'triggerAutofocus', []);
+    },
+    
+    optimizeAutofocusForUsb: function(successCallback, errorCallback) {
+        cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'optimizeAutofocusForUsb', []);
     }
 };
 

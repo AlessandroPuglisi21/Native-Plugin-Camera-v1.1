@@ -70,7 +70,7 @@ public class UsbExternalCamera extends CordovaPlugin {
         switch (action) {
             case "open":
                 return openCamera(args, callbackContext);
-            case "initSimple": // ← NUOVA FUNZIONE
+            case "initSimple":
                 return initSimple(callbackContext);
             case "stopPreview":
                 return stopPreview(callbackContext);
@@ -82,7 +82,11 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return listCameras(callbackContext);
             case "disableAutofocus":
                 return disableAutofocus(callbackContext);
-            case "debugCapabilities": // Nuovo comando per debug
+            case "triggerAutofocus":
+                return triggerAutofocus(callbackContext);
+            case "optimizeAutofocusForUsb":
+                return optimizeAutofocusForUsb(callbackContext);
+            case "debugCapabilities":
                 return debugCameraCapabilities(callbackContext);
             default:
                 return false;
@@ -318,22 +322,34 @@ public class UsbExternalCamera extends CordovaPlugin {
                         captureSession = session;
                         try {
                             if (autofocusDisabled) {
-                                Log.d(TAG, "Setting AF_MODE_OFF for preview");
-                                previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
-                                
-                                // Imposta focus manuale
-                                Float minFocusDistance = cameraManager.getCameraCharacteristics(externalCameraId)
-                                        .get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
-                                if (minFocusDistance != null && minFocusDistance > 0) {
-                                    previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
-                                    Log.d(TAG, "Set manual focus distance to infinity");
-                                }
-                                
-                                // Disabilita trigger autofocus
-                                previewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
-                            } else {
-                                previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                            Log.d(TAG, "Setting AF_MODE_OFF for preview");
+                            previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
+                            
+                            // Imposta focus manuale
+                            Float minFocusDistance = cameraManager.getCameraCharacteristics(externalCameraId)
+                                    .get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+                            if (minFocusDistance != null && minFocusDistance > 0) {
+                                previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
+                                Log.d(TAG, "Set manual focus distance to infinity");
                             }
+                            
+                            // Disabilita trigger autofocus
+                            previewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
+                        } else {
+                            // MIGLIORAMENTO: Usa AUTO invece di CONTINUOUS per webcam USB
+                            previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO);
+                            
+                            // Imposta parametri ottimizzati per webcam USB
+                            previewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE);
+                            
+                            // Riduce la sensibilità dell'autofocus
+                            previewRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+                            
+                            // Stabilizza l'esposizione per aiutare l'autofocus
+                            previewRequestBuilder.set(CaptureRequest.CONTROL_AE_LOCK, false);
+                            
+                            Log.d(TAG, "Using optimized AF_MODE_AUTO for USB webcam");
+                        }
                             CaptureRequest previewRequest = previewRequestBuilder.build();
                             captureSession.setRepeatingRequest(previewRequest, null, backgroundHandler);
                             isPreviewActive = true;
@@ -1043,5 +1059,90 @@ public class UsbExternalCamera extends CordovaPlugin {
             Log.e(TAG, "Error getting camera info", e);
         }
         return info;
-    } 
+    }
+
+    /**
+     * Trigger manuale dell'autofocus per webcam USB
+     */
+    private boolean triggerAutofocus(CallbackContext callbackContext) {
+        try {
+            if (captureSession != null && cameraDevice != null) {
+                Log.d(TAG, "Triggering manual autofocus");
+                
+                CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                builder.addTarget(imageReader.getSurface());
+                
+                // Imposta modalità autofocus ottimale per webcam USB
+                builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO);
+                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START);
+                
+                // Cattura singola per trigger AF
+                captureSession.capture(builder.build(), new CameraCaptureSession.CaptureCallback() {
+                    @Override
+                    public void onCaptureCompleted(@NonNull CameraCaptureSession session,
+                                                  @NonNull CaptureRequest request,
+                                                  @NonNull TotalCaptureResult result) {
+                        Log.d(TAG, "Autofocus trigger completed");
+                        
+                        // Dopo il trigger, torna alla modalità normale
+                        try {
+                            CaptureRequest.Builder normalBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                            normalBuilder.addTarget(imageReader.getSurface());
+                            normalBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO);
+                            normalBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE);
+                            
+                            captureSession.setRepeatingRequest(normalBuilder.build(), null, backgroundHandler);
+                        } catch (CameraAccessException e) {
+                            Log.e(TAG, "Error setting normal AF mode", e);
+                        }
+                    }
+                }, backgroundHandler);
+                
+                callbackContext.success("Autofocus triggered");
+            } else {
+                callbackContext.error("Camera not ready");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error triggering autofocus", e);
+            callbackContext.error("Failed to trigger autofocus: " + e.getMessage());
+        }
+        return true;
+    }
+
+    /**
+     * Imposta autofocus ottimizzato per webcam USB
+     */
+    private boolean optimizeAutofocusForUsb(CallbackContext callbackContext) {
+        try {
+            if (captureSession != null && cameraDevice != null && imageReader != null) {
+                Log.d(TAG, "Optimizing autofocus for USB webcam");
+                captureSession.stopRepeating();
+                
+                CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                builder.addTarget(imageReader.getSurface());
+                
+                // Configurazione ottimizzata per webcam USB
+                builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO);
+                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE);
+                
+                // Stabilizza altri parametri che possono interferire con AF
+                builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+                builder.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO);
+                
+                // Riduce la velocità di aggiornamento per dare tempo all'AF
+                builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new android.util.Range<>(15, 30));
+                
+                captureSession.setRepeatingRequest(builder.build(), null, backgroundHandler);
+                Log.d(TAG, "USB webcam autofocus optimization applied");
+                
+                callbackContext.success("Autofocus optimized for USB webcam");
+            } else {
+                callbackContext.error("Camera not ready");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error optimizing autofocus", e);
+            callbackContext.error("Failed to optimize autofocus: " + e.getMessage());
+        }
+        return true;
+    }
 }
