@@ -37,6 +37,10 @@ var UsbCamera = {
     
     disableAutofocus: function (callback, errorCallback) {
         exec(callback, errorCallback, 'UsbExternalCamera', 'disableAutofocus', []);
+    },
+    
+    initSimple: function(successCallback, errorCallback) {
+        cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'initSimple', []);
     }
 };
 

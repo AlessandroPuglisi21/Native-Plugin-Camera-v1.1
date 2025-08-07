@@ -70,6 +70,8 @@ public class UsbExternalCamera extends CordovaPlugin {
         switch (action) {
             case "open":
                 return openCamera(args, callbackContext);
+            case "initSimple": // ← NUOVA FUNZIONE
+                return initSimple(callbackContext);
             case "stopPreview":
                 return stopPreview(callbackContext);
             case "takePhoto":
@@ -80,6 +82,8 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return listCameras(callbackContext);
             case "disableAutofocus":
                 return disableAutofocus(callbackContext);
+            case "debugCapabilities": // Nuovo comando per debug
+                return debugCameraCapabilities(callbackContext);
             default:
                 return false;
         }
@@ -316,7 +320,17 @@ public class UsbExternalCamera extends CordovaPlugin {
                             if (autofocusDisabled) {
                                 Log.d(TAG, "Setting AF_MODE_OFF for preview");
                                 previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
-                                previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
+                                
+                                // Imposta focus manuale
+                                Float minFocusDistance = cameraManager.getCameraCharacteristics(externalCameraId)
+                                        .get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+                                if (minFocusDistance != null && minFocusDistance > 0) {
+                                    previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
+                                    Log.d(TAG, "Set manual focus distance to infinity");
+                                }
+                                
+                                // Disabilita trigger autofocus
+                                previewRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
                             } else {
                                 previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
                             }
@@ -735,26 +749,58 @@ public class UsbExternalCamera extends CordovaPlugin {
         }
         return true;
     }
-    // 3. Implementare il metodo disableAutofocus
-    
-    /**
-     * Disable autofocus for current session or upcoming sessions
-     * Specifically designed for Logitech C920/C929 and similar UVC cameras
-     */
     private boolean disableAutofocus(CallbackContext callbackContext) {
-        autofocusDisabled = true;
-        Log.d(TAG, "Autofocus disabled flag set to true");
-        
         try {
-            // If preview already running, restart with AF off
+            // Verifica se la camera supporta AF_MODE_OFF
+            if (cameraDevice != null) {
+                CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(externalCameraId);
+                int[] afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES);
+                
+                boolean supportsAfOff = false;
+                if (afModes != null) {
+                    for (int mode : afModes) {
+                        Log.d(TAG, "Available AF mode: " + mode);
+                        if (mode == CameraCharacteristics.CONTROL_AF_MODE_OFF) {
+                            supportsAfOff = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!supportsAfOff) {
+                    Log.w(TAG, "Camera does not support AF_MODE_OFF, trying alternative approach");
+                    return disableAutofocusAlternative(callbackContext);
+                }
+            }
+            
+            autofocusDisabled = true;
+            Log.d(TAG, "Autofocus disabled flag set to true");
+            
+            // Se il preview è già attivo, riavvia con AF disabilitato
             if (captureSession != null && cameraDevice != null && imageReader != null) {
                 Log.d(TAG, "Restarting capture session with autofocus disabled");
                 captureSession.stopRepeating();
                 
                 CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                 builder.addTarget(imageReader.getSurface());
+                
+                // Imposta AF_MODE_OFF
                 builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
-                builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
+                
+                // Imposta focus manuale all'infinito
+                Float minFocusDistance = cameraManager.getCameraCharacteristics(externalCameraId)
+                        .get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+                if (minFocusDistance != null && minFocusDistance > 0) {
+                    builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f); // Infinito
+                    Log.d(TAG, "Set manual focus to infinity (0.0f), min focus distance: " + minFocusDistance);
+                }
+                
+                // Disabilita anche la stabilizzazione ottica se presente
+                builder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, 
+                           CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF);
+                
+                // Imposta controllo manuale dell'esposizione se necessario
+                builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
                 
                 captureSession.setRepeatingRequest(builder.build(), null, backgroundHandler);
                 Log.d(TAG, "Capture session restarted with AF_MODE_OFF");
@@ -767,6 +813,237 @@ public class UsbExternalCamera extends CordovaPlugin {
         }
         return true;
     }
+    
+    /**
+     * Metodo alternativo per webcam che non supportano AF_MODE_OFF
+     */
+    private boolean disableAutofocusAlternative(CallbackContext callbackContext) {
+        try {
+            autofocusDisabled = true;
+            Log.d(TAG, "Using alternative autofocus disable method");
+            
+            if (captureSession != null && cameraDevice != null && imageReader != null) {
+                captureSession.stopRepeating();
+                
+                CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                builder.addTarget(imageReader.getSurface());
+                
+                // Prova con AF_MODE_AUTO ma senza trigger
+                builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO);
+                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
+                
+                // Imposta focus fisso se supportato
+                Float minFocusDistance = cameraManager.getCameraCharacteristics(externalCameraId)
+                        .get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+                if (minFocusDistance != null && minFocusDistance > 0) {
+                    builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
+                }
+                
+                captureSession.setRepeatingRequest(builder.build(), null, backgroundHandler);
+                Log.d(TAG, "Alternative autofocus disable applied");
+            }
+            
+            callbackContext.success("Autofocus disabled using alternative method");
+        } catch (Exception e) {
+            Log.e(TAG, "Error in alternative autofocus disable", e);
+            callbackContext.error("Failed to disable autofocus (alternative): " + e.getMessage());
+        }
+        return true;
+    }
+}
+private boolean debugCameraCapabilities(CallbackContext callbackContext) {
+    try {
+        if (externalCameraId != null) {
+            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(externalCameraId);
+            
+            // Verifica modalità AF disponibili
+            int[] afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES);
+            StringBuilder afInfo = new StringBuilder("Available AF modes: ");
+            if (afModes != null) {
+                for (int mode : afModes) {
+                    afInfo.append(mode).append(" ");
+                }
+            }
+            Log.d(TAG, afInfo.toString());
+            
+            // Verifica distanza focus
+            Float minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+            Log.d(TAG, "Min focus distance: " + minFocusDistance);
+            
+            // Verifica capacità hardware
+            Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+            Log.d(TAG, "Hardware level: " + hwLevel);
+            
+            callbackContext.success("Debug info logged");
+        } else {
+            callbackContext.error("No camera selected");
+        }
+    } catch (Exception e) {
+        Log.e(TAG, "Error getting camera capabilities", e);
+        callbackContext.error("Failed to get camera capabilities: " + e.getMessage());
+    }
+    return true;
+}
+/**
+ * Inizializzazione semplificata che sfrutta il rilevamento nativo di Android
+ * Rileva automaticamente webcam USB senza gestione diretta USB
+ */
+private boolean initSimple(CallbackContext callbackContext) {
+    try {
+        cameraManager = (CameraManager) cordova.getActivity().getSystemService(Context.CAMERA_SERVICE);
+        
+        // Enumera tutte le camere disponibili (incluse USB)
+        String[] cameraIds = cameraManager.getCameraIdList();
+        Log.d(TAG, "Found " + cameraIds.length + " cameras total");
+        
+        // Trova automaticamente la prima webcam USB esterna
+        for (String cameraId : cameraIds) {
+            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+            
+            // Verifica se è una camera esterna (USB)
+            Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
+            Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+            
+            // Le webcam USB sono tipicamente LENS_FACING_EXTERNAL
+            if (lensFacing != null && lensFacing == CameraCharacteristics.LENS_FACING_EXTERNAL) {
+                externalCameraId = cameraId;
+                Log.d(TAG, "Found USB camera: " + cameraId);
+                
+                // Ottieni informazioni sulla camera
+                JSONObject cameraInfo = getSimpleCameraInfo(characteristics, cameraId);
+                
+                callbackContext.success(cameraInfo);
+                return true;
+            }
+        }
+        
+        // Se non trova LENS_FACING_EXTERNAL, cerca camera con caratteristiche USB
+        for (String cameraId : cameraIds) {
+            if (isLikelyUsbCamera(cameraId)) {
+                externalCameraId = cameraId;
+                Log.d(TAG, "Found likely USB camera: " + cameraId);
+                
+                CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+                JSONObject cameraInfo = getSimpleCameraInfo(characteristics, cameraId);
+                
+                callbackContext.success(cameraInfo);
+                return true;
+            }
+        }
+        
+        callbackContext.error("No USB camera found");
+        
+    } catch (Exception e) {
+        Log.e(TAG, "Error in initSimple", e);
+        callbackContext.error("Failed to initialize: " + e.getMessage());
+    }
+    return true;
+}
+
+/**
+ * Verifica se una camera è probabilmente USB basandosi sull'ID
+ */
+private boolean isLikelyUsbCamera(String cameraId) {
+    try {
+        CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+        
+        // Le webcam USB hanno spesso:
+        // - Hardware level LIMITED
+        // - Pochi formati supportati
+        // - ID numerici alti (2, 3, 4...)
+        
+        Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+        if (hwLevel != null && hwLevel == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED) {
+            
+            // Verifica se l'ID è numerico e > 1 (tipico delle USB)
+            try {
+                int id = Integer.parseInt(cameraId);
+                if (id >= 2) {
+                    Log.d(TAG, "Camera " + cameraId + " likely USB (ID >= 2, LIMITED level)");
+                    return true;
+                }
+            } catch (NumberFormatException e) {
+                // ID non numerico, potrebbe essere USB con nome specifico
+                Log.d(TAG, "Camera " + cameraId + " has non-numeric ID, checking other criteria");
+            }
+        }
+        
+        return false;
+    } catch (Exception e) {
+        Log.e(TAG, "Error checking if camera is USB: " + cameraId, e);
+        return false;
+    }
+}
+
+/**
+ * Ottieni informazioni essenziali sulla camera
+ */
+private JSONObject getSimpleCameraInfo(CameraCharacteristics characteristics, String cameraId) {
+    JSONObject info = new JSONObject();
+    try {
+        info.put("cameraId", cameraId);
+        
+        // Facing
+        Integer lensFacing = characteristics.get(CameraCharacteristics.LENS_FACING);
+        String facing = "unknown";
+        if (lensFacing != null) {
+            switch (lensFacing) {
+                case CameraCharacteristics.LENS_FACING_FRONT:
+                    facing = "front";
+                    break;
+                case CameraCharacteristics.LENS_FACING_BACK:
+                    facing = "back";
+                    break;
+                case CameraCharacteristics.LENS_FACING_EXTERNAL:
+                    facing = "external";
+                    break;
+            }
+        }
+        info.put("facing", facing);
+        
+        // Hardware level
+        Integer hwLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+        String level = "unknown";
+        if (hwLevel != null) {
+            switch (hwLevel) {
+                case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED:
+                    level = "limited";
+                    break;
+                case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL:
+                    level = "full";
+                    break;
+                case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY:
+                    level = "legacy";
+                    break;
+            }
+        }
+        info.put("hardwareLevel", level);
+        
+        // Modalità autofocus supportate
+        int[] afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES);
+        JSONArray afArray = new JSONArray();
+        if (afModes != null) {
+            for (int mode : afModes) {
+                afArray.put(mode);
+            }
+        }
+        info.put("autofocusModes", afArray);
+        
+        // Risoluzione massima
+        StreamConfigurationMap configMap = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        if (configMap != null) {
+            Size[] sizes = configMap.getOutputSizes(ImageFormat.JPEG);
+            if (sizes != null && sizes.length > 0) {
+                Size maxSize = sizes[0]; // Prima è solitamente la più grande
+                info.put("maxWidth", maxSize.getWidth());
+                info.put("maxHeight", maxSize.getHeight());
+            }
+        }
+        
+    } catch (Exception e) {
+        Log.e(TAG, "Error getting camera info", e);
+    }
+    return info;
 }
 
 
