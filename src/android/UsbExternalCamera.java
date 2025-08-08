@@ -3,6 +3,9 @@ package com.cordova.plugin;
 // Aggiungi questo importo in cima al file
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
+import android.hardware.usb.UsbDeviceConnection;
+import android.hardware.usb.UsbConstants;
+import android.hardware.usb.UsbInterface;
 import java.util.HashMap;
 import org.json.JSONException;
 import android.Manifest;
@@ -66,6 +69,11 @@ public class UsbExternalCamera extends CordovaPlugin {
     private JSONArray pendingOpenArgs;
     private boolean autofocusDisabled = false;
     
+    private UsbDeviceConnection uvcConnection;
+    private UsbInterface videoControlInterface;
+    private int focusAbsoluteMin = 0;
+    private int focusAbsoluteMax = 255;
+    
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
         switch (action) {
@@ -91,6 +99,10 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return debugCameraCapabilities(callbackContext);
             case "setFocusDistance":
                 return setFocusDistance(args, callbackContext);
+            case "setUvcAutoFocus":
+                return setUvcAutoFocus(args, callbackContext);
+            case "setUvcFocusAbsolute":
+                return setUvcFocusAbsolute(args, callbackContext);
             default:
                 return false;
         }
@@ -177,6 +189,20 @@ public class UsbExternalCamera extends CordovaPlugin {
                 imageReader.close();
                 imageReader = null;
             }
+            
+            if (uvcConnection != null) {
+                try {
+                    if (videoControlInterface != null) {
+                        uvcConnection.releaseInterface(videoControlInterface);
+                    }
+                    uvcConnection.close();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error closing UVC connection", e);
+                }
+                uvcConnection = null;
+                videoControlInterface = null;
+            }
+            
             isPreviewActive = false;
             frameCallback = null;
             callbackContext.success("Camera closed");
@@ -1201,5 +1227,205 @@ public class UsbExternalCamera extends CordovaPlugin {
         }
         
         return true;
+    }
+
+    private boolean setUvcAutoFocus(JSONArray args, CallbackContext callbackContext) {
+        try {
+            boolean enable = args.getBoolean(0);
+            
+            if (!initUvcConnection()) {
+                callbackContext.error("Failed to initialize UVC connection");
+                return true;
+            }
+            
+            byte[] data = new byte[1];
+            data[0] = (byte) (enable ? 1 : 0);
+            
+            int result = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                0x01, // SET_CUR
+                0x0800, // CT_FOCUS_AUTO_CONTROL
+                videoControlInterface.getId() << 8 | 0x01, // wIndex: interface | unit
+                data,
+                data.length,
+                1000
+            );
+            
+            if (result >= 0) {
+                Log.d(TAG, "UVC AutoFocus set to: " + enable);
+                callbackContext.success("AutoFocus " + (enable ? "enabled" : "disabled"));
+            } else {
+                callbackContext.error("Failed to set AutoFocus: " + result);
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting UVC AutoFocus", e);
+            callbackContext.error("Error: " + e.getMessage());
+        }
+        
+        return true;
+    }
+
+    private boolean setUvcFocusAbsolute(JSONArray args, CallbackContext callbackContext) {
+        try {
+            double normalizedValue = args.getDouble(0); // 0.0 - 1.0
+            
+            if (normalizedValue < 0.0 || normalizedValue > 1.0) {
+                callbackContext.error("Focus value must be between 0.0 and 1.0");
+                return true;
+            }
+            
+            if (!initUvcConnection()) {
+                callbackContext.error("Failed to initialize UVC connection");
+                return true;
+            }
+            
+            // Disabilita prima l'autofocus
+            byte[] autoFocusData = new byte[1];
+            autoFocusData[0] = 0;
+            uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                0x01, // SET_CUR
+                0x0800, // CT_FOCUS_AUTO_CONTROL
+                videoControlInterface.getId() << 8 | 0x01,
+                autoFocusData,
+                autoFocusData.length,
+                1000
+            );
+            
+            // Calcola il valore assoluto
+            int absoluteValue = (int) (focusAbsoluteMin + (normalizedValue * (focusAbsoluteMax - focusAbsoluteMin)));
+            
+            byte[] data = new byte[2];
+            data[0] = (byte) (absoluteValue & 0xFF);
+            data[1] = (byte) ((absoluteValue >> 8) & 0xFF);
+            
+            int result = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                0x01, // SET_CUR
+                0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
+                videoControlInterface.getId() << 8 | 0x01,
+                data,
+                data.length,
+                1000
+            );
+            
+            if (result >= 0) {
+                Log.d(TAG, "UVC Focus Absolute set to: " + absoluteValue + " (normalized: " + normalizedValue + ")");
+                callbackContext.success("Focus set to " + absoluteValue);
+            } else {
+                callbackContext.error("Failed to set Focus Absolute: " + result);
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting UVC Focus Absolute", e);
+            callbackContext.error("Error: " + e.getMessage());
+        }
+        
+        return true;
+    }
+
+    private boolean initUvcConnection() {
+        if (uvcConnection != null && videoControlInterface != null) {
+            return true;
+        }
+        
+        try {
+            UsbManager usbManager = (UsbManager) cordova.getActivity().getSystemService(Context.USB_SERVICE);
+            HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+            
+            UsbDevice logitechDevice = null;
+            for (UsbDevice device : deviceList.values()) {
+                if (device.getVendorId() == 0x046d) { // Logitech
+                    logitechDevice = device;
+                    break;
+                }
+            }
+            
+            if (logitechDevice == null) {
+                Log.e(TAG, "Logitech device not found");
+                return false;
+            }
+            
+            // Trova l'interfaccia VideoControl (classe 14, sottoclasse 1)
+            for (int i = 0; i < logitechDevice.getInterfaceCount(); i++) {
+                UsbInterface intf = logitechDevice.getInterface(i);
+                if (intf.getInterfaceClass() == 14 && intf.getInterfaceSubclass() == 1) {
+                    videoControlInterface = intf;
+                    break;
+                }
+            }
+            
+            if (videoControlInterface == null) {
+                Log.e(TAG, "VideoControl interface not found");
+                return false;
+            }
+            
+            uvcConnection = usbManager.openDevice(logitechDevice);
+            if (uvcConnection == null) {
+                Log.e(TAG, "Failed to open USB device");
+                return false;
+            }
+            
+            if (!uvcConnection.claimInterface(videoControlInterface, true)) {
+                Log.e(TAG, "Failed to claim VideoControl interface");
+                uvcConnection.close();
+                uvcConnection = null;
+                return false;
+            }
+            
+            // Leggi il range del Focus Absolute
+            readFocusAbsoluteRange();
+            
+            Log.d(TAG, "UVC connection initialized successfully");
+            return true;
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error initializing UVC connection", e);
+            return false;
+        }
+    }
+
+    private void readFocusAbsoluteRange() {
+        try {
+            // GET_MIN
+            byte[] minData = new byte[2];
+            int result = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                0x82, // GET_MIN
+                0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
+                videoControlInterface.getId() << 8 | 0x01,
+                minData,
+                minData.length,
+                1000
+            );
+            
+            if (result >= 0) {
+                focusAbsoluteMin = (minData[1] << 8) | (minData[0] & 0xFF);
+            }
+            
+            // GET_MAX
+            byte[] maxData = new byte[2];
+            result = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                0x83, // GET_MAX
+                0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
+                videoControlInterface.getId() << 8 | 0x01,
+                maxData,
+                maxData.length,
+                1000
+            );
+            
+            if (result >= 0) {
+                focusAbsoluteMax = (maxData[1] << 8) | (maxData[0] & 0xFF);
+            }
+            
+            Log.d(TAG, "Focus Absolute range: " + focusAbsoluteMin + " - " + focusAbsoluteMax);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error reading focus range", e);
+            focusAbsoluteMin = 0;
+            focusAbsoluteMax = 255;
+        }
     }
 }
