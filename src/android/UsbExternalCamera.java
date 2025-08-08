@@ -1259,6 +1259,8 @@ public class UsbExternalCamera extends CordovaPlugin {
             // Sospendi la sessione Camera2 per evitare conflitti con il driver UVC
             suspendCameraForUvc();
             try {
+                // Assicurati altsetting 0 per VC
+                setInterfaceAltZero();
                 // Usa il Camera Terminal corretto
                 int wIndex = getWIndexForCameraTerminal();
                 byte[] data = new byte[1];
@@ -1277,7 +1279,23 @@ public class UsbExternalCamera extends CordovaPlugin {
                     Log.d(TAG, "UVC AutoFocus set (CT)=" + enable + ", wIndex=0x" + Integer.toHexString(wIndex));
                     callbackContext.success("AutoFocus " + (enable ? "enabled" : "disabled"));
                 } else {
-                    callbackContext.error("Failed to set AutoFocus: " + result);
+                    // Fallback: prova wIndex invertito
+                    int altWIndex = getWIndexForCameraTerminalSwapped();
+                    int result2 = uvcConnection.controlTransfer(
+                        UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                        0x01,
+                        0x0800,
+                        altWIndex,
+                        data,
+                        data.length,
+                        1000
+                    );
+                    if (result2 >= 0) {
+                        Log.d(TAG, "UVC AutoFocus set using swapped wIndex=0x" + Integer.toHexString(altWIndex));
+                        callbackContext.success("AutoFocus " + (enable ? "enabled" : "disabled"));
+                    } else {
+                        callbackContext.error("Failed to set AutoFocus: primary=" + result + ", swapped=" + result2);
+                    }
                 }
             } finally {
                 resumeCameraAfterUvc();
@@ -1307,6 +1325,7 @@ public class UsbExternalCamera extends CordovaPlugin {
             
             // Sospendi la sessione Camera2 durante i control transfer
             suspendCameraForUvc();
+            setInterfaceAltZero();
             int wIndex = getWIndexForCameraTerminal();
             
             // Disabilita prima l'autofocus (CT_FOCUS_AUTO_CONTROL)
@@ -1343,7 +1362,23 @@ public class UsbExternalCamera extends CordovaPlugin {
                 Log.d(TAG, "UVC Focus Absolute set to: " + absoluteValue + " (normalized: " + normalizedValue + ")");
                 callbackContext.success("Focus set to " + absoluteValue);
             } else {
-                callbackContext.error("Failed to set Focus Absolute: " + result);
+                // Fallback: prova wIndex invertito
+                int altWIndex = getWIndexForCameraTerminalSwapped();
+                int result2 = uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                    0x01,
+                    0x0600,
+                    altWIndex,
+                    data,
+                    data.length,
+                    1000
+                );
+                if (result2 >= 0) {
+                    Log.d(TAG, "UVC Focus Absolute set using swapped wIndex to: " + absoluteValue);
+                    callbackContext.success("Focus set to " + absoluteValue);
+                } else {
+                    callbackContext.error("Failed to set Focus Absolute: primary=" + result + ", swapped=" + result2);
+                }
             }
             
             // Ripristina la sessione Camera2
@@ -1554,8 +1589,15 @@ public class UsbExternalCamera extends CordovaPlugin {
         return true;
     }
 
-    // Helper: compone wIndex = (bInterfaceNumber << 8) | bTerminalID
+    // Helper: compone wIndex = (bEntityID << 8) | bInterfaceNumber (per UVC spec)
     private int getWIndexForCameraTerminal() {
+        int iface = vcInterfaceNumber >= 0 ? vcInterfaceNumber : (videoControlInterface != null ? videoControlInterface.getId() : 0);
+        int term = cameraTerminalId > 0 ? cameraTerminalId : 0x01;
+        return ((term & 0xFF) << 8) | (iface & 0xFF);
+    }
+
+    // Fallback: compone wIndex come (bInterfaceNumber << 8) | bEntityID
+    private int getWIndexForCameraTerminalSwapped() {
         int iface = vcInterfaceNumber >= 0 ? vcInterfaceNumber : (videoControlInterface != null ? videoControlInterface.getId() : 0);
         int term = cameraTerminalId > 0 ? cameraTerminalId : 0x01;
         return ((iface & 0xFF) << 8) | (term & 0xFF);
@@ -1565,7 +1607,13 @@ public class UsbExternalCamera extends CordovaPlugin {
     private void suspendCameraForUvc() {
         try {
             if (captureSession != null) {
-                captureSession.stopRepeating();
+                try { captureSession.stopRepeating(); } catch (Exception ignored) {}
+                try { captureSession.close(); } catch (Exception ignored) {}
+                captureSession = null;
+            }
+            if (cameraDevice != null) {
+                try { cameraDevice.close(); } catch (Exception ignored) {}
+                cameraDevice = null;
             }
         } catch (Exception ignored) {}
     }
@@ -1573,25 +1621,9 @@ public class UsbExternalCamera extends CordovaPlugin {
     // Ripristina la preview con le impostazioni correnti
     private void resumeCameraAfterUvc() {
         try {
-            if (captureSession != null && cameraDevice != null && imageReader != null) {
-                CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-                builder.addTarget(imageReader.getSurface());
-                if (autofocusDisabled) {
-                    builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
-                    Float minFocusDistance = cameraManager.getCameraCharacteristics(externalCameraId)
-                            .get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
-                    if (minFocusDistance != null && minFocusDistance > 0) {
-                        builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
-                    }
-                    builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
-                } else {
-                    builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO);
-                    builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE);
-                    builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
-                    builder.set(CaptureRequest.CONTROL_AE_LOCK, false);
-                }
-                captureSession.setRepeatingRequest(builder.build(), null, backgroundHandler);
-                isPreviewActive = true;
+            // Riapri la camera e ricrea la preview
+            if (cameraManager != null && externalCameraId != null) {
+                openCameraDevice();
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to resume preview after UVC control", e);
@@ -1669,6 +1701,17 @@ public class UsbExternalCamera extends CordovaPlugin {
             Log.d(TAG, "UVC entities: iface=" + vcInterfaceNumber + ", CT=" + cameraTerminalId + ", PU=" + processingUnitId);
         } catch (Exception e) {
             Log.w(TAG, "discoverUvcEntities failed", e);
+        }
+    }
+
+    // Imposta sempre l'altsetting 0 per l'interfaccia VC prima dei control transfer
+    private void setInterfaceAltZero() {
+        try {
+            if (uvcConnection != null && videoControlInterface != null) {
+                uvcConnection.setInterface(videoControlInterface);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "setInterfaceAltZero failed", e);
         }
     }
 }
