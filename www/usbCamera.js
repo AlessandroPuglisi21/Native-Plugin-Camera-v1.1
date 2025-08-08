@@ -82,6 +82,10 @@ var UsbCamera = {
         }
         
         cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'setUvcFocusAbsolute', [value]);
+    },
+    
+    debugUvcControls: function(successCallback, errorCallback) {
+        cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'debugUvcControls', []);
     }
 };
 
