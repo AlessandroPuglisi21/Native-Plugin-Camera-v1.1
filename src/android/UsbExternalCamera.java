@@ -1264,7 +1264,7 @@ public class UsbExternalCamera extends CordovaPlugin {
                 byte[] data = new byte[1];
                 data[0] = (byte) (enable ? 1 : 0);
                 int result = uvcConnection.controlTransfer(
-                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
                     0x01, // SET_CUR
                     0x0800, // CT_FOCUS_AUTO_CONTROL (1 byte)
                     wIndex,
@@ -1313,7 +1313,7 @@ public class UsbExternalCamera extends CordovaPlugin {
             byte[] autoFocusData = new byte[1];
             autoFocusData[0] = 0;
             uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
                 0x01, // SET_CUR
                 0x0800, // CT_FOCUS_AUTO_CONTROL
                 wIndex,
@@ -1330,7 +1330,7 @@ public class UsbExternalCamera extends CordovaPlugin {
             data[1] = (byte) ((absoluteValue >> 8) & 0xFF);
             
             int result = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
                 0x01, // SET_CUR
                 0x0600, // CT_FOCUS_ABSOLUTE_CONTROL (2 bytes, LE)
                 wIndex,
@@ -1431,7 +1431,7 @@ public class UsbExternalCamera extends CordovaPlugin {
             // GET_MIN
             byte[] minData = new byte[2];
             int result = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
                 0x82, // GET_MIN
                 0x0600, // CT_FOCUS_ABSOLUTE_CONTROL
                 wIndex,
@@ -1447,7 +1447,7 @@ public class UsbExternalCamera extends CordovaPlugin {
             // GET_MAX
             byte[] maxData = new byte[2];
             result = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
                 0x83, // GET_MAX
                 0x0600, // CT_FOCUS_ABSOLUTE_CONTROL
                 wIndex,
@@ -1487,7 +1487,7 @@ public class UsbExternalCamera extends CordovaPlugin {
         try {
             byte[] info = new byte[1];
             int r = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
                 0x86, // GET_INFO
                 0x0800,
                 wIndex,
@@ -1503,7 +1503,7 @@ public class UsbExternalCamera extends CordovaPlugin {
         try {
             byte[] cur = new byte[1];
             int r = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
                 0x81, // GET_CUR
                 0x0800,
                 wIndex,
@@ -1519,7 +1519,7 @@ public class UsbExternalCamera extends CordovaPlugin {
         try {
             byte[] min = new byte[2];
             int rmin = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
                 0x82, // GET_MIN
                 0x0600,
                 wIndex,
@@ -1529,7 +1529,7 @@ public class UsbExternalCamera extends CordovaPlugin {
             );
             byte[] max = new byte[2];
             int rmax = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
                 0x83, // GET_MAX
                 0x0600,
                 wIndex,
@@ -1606,7 +1606,7 @@ public class UsbExternalCamera extends CordovaPlugin {
             // Primo step: leggi i primi 9 byte per wTotalLength
             byte[] cfg9 = new byte[9];
             int n = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | UsbConstants.USB_RECIP_DEVICE,
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | 0x00,
                 0x06, // GET_DESCRIPTOR
                 (0x02 << 8) | 0, // CONFIGURATION descriptor, index 0
                 0,
@@ -1620,7 +1620,7 @@ public class UsbExternalCamera extends CordovaPlugin {
 
             byte[] cfg = new byte[Math.min(1024, Math.max(totalLength, 256))];
             n = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | UsbConstants.USB_RECIP_DEVICE,
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | 0x00,
                 0x06,
                 (0x02 << 8) | 0,
                 0,

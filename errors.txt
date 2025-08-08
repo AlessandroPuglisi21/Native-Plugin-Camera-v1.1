@@ -1,5 +1,5 @@
 Handling project.properties
-searchFor /Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/project.properties
+searchFor /Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/project.properties
 cordova-custom-config: Loaded module dependencies
 cordova-custom-config: Running restoreBackups.js
 cordova-custom-config: Skipping auto-restore of config file backup(s)
@@ -8,14 +8,14 @@ cordova-custom-config: Running applyCustomConfig.js
 DEBUG: Aborting applyCustomConfig.js because current hook 'before_prepare' is not configured hook 'after_prepare'
 cordova-custom-config: Finished applying platform config
 The "AndroidWindowSplashScreenAnimatedIcon" value does not exist. Cordova's default will be used.
-Copy /Users/admin/build-server/1754642024771/inde-container24.5/build-extras.gradle to /Users/admin/build-server/1754642024771/inde-container24.5/platforms/android
-Skip /Users/admin/build-server/1754642024771/inde-container24.5/google-services.json copy (path does not exist)
-searchFor /Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/AndroidManifest.xml
-searchFor /Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/AndroidManifest.xml
-searchFor /Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/java/com/chariotsolutions/nfc/plugin/NfcPlugin.java
-wrote /Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/java/com/chariotsolutions/nfc/plugin/NfcPlugin.java
-searchFor /Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/AndroidManifest.xml
-wrote /Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/AndroidManifest.xml
+Copy /Users/admin/build-server/1754649709609/inde-container24.5/build-extras.gradle to /Users/admin/build-server/1754649709609/inde-container24.5/platforms/android
+Skip /Users/admin/build-server/1754649709609/inde-container24.5/google-services.json copy (path does not exist)
+searchFor /Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/AndroidManifest.xml
+searchFor /Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/AndroidManifest.xml
+searchFor /Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/chariotsolutions/nfc/plugin/NfcPlugin.java
+wrote /Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/chariotsolutions/nfc/plugin/NfcPlugin.java
+searchFor /Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/AndroidManifest.xml
+wrote /Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/AndroidManifest.xml
 cordova-custom-config: Loaded module dependencies
 cordova-custom-config: Running applyCustomConfig.js
 DEBUG: Searching config.xml for prefixed elements: custom-preference
@@ -23,7 +23,7 @@ DEBUG: Searching config.xml for prefixed elements: platform[@name='android']/cus
 DEBUG: Searching config.xml for prefixed elements: platform[@name='android']custom-config-file
 DEBUG: Searching config.xml for prefixed elements: platform[@name='android']/custom-resource
 cordova-custom-config: Finished applying platform config
-cordova-plugin-androidx-adapter: Processed 96 source files in 2446ms
+cordova-plugin-androidx-adapter: Processed 96 source files in 2290ms
 cordova-custom-config: Loaded module dependencies
 cordova-custom-config: Running applyCustomConfig.js
 DEBUG: Aborting applyCustomConfig.js because current hook 'before_compile' is not configured hook 'after_prepare'
@@ -32,7 +32,6 @@ Checking Java JDK and Android SDK versions
 ANDROID_HOME=/Users/admin/Library/Android/sdk (recommended setting)
 ANDROID_SDK_ROOT=undefined (DEPRECATED)
 Using Android SDK: /Users/admin/Library/Android/sdk
-Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :wrapper
 
 Deprecated Gradle features were used in this build, making it incompatible with Gradle 8.0.
@@ -41,15 +40,13 @@ You can use '--warning-mode all' to show the individual deprecation warnings and
 
 See https://docs.gradle.org/7.6.4/userguide/command_line_interface.html#sec:command_line_warnings
 
-BUILD SUCCESSFUL in 6s
+BUILD SUCCESSFUL in 907ms
 1 actionable task: 1 executed
 Subproject Path: CordovaLib
 Subproject Path: app
-Starting a Gradle Daemon (subsequent builds will be faster)
 
 > Configure project :app
 WARNING:Using flatDir should be avoided because it doesn't support any meta-data formats.
-Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
 WARNING:We recommend using a newer Android Gradle plugin to use compileSdk = 34
 
 This Android Gradle plugin (7.4.2) was tested up to compileSdk = 33
@@ -72,22 +69,26 @@ use a newer Android Gradle Plugin that has been tested with compileSdk = 34
 > Task :app:compileDebugRenderscript NO-SOURCE
 > Task :app:generateDebugBuildConfig
 > Task :app:javaPreCompileDebug
-> Task :app:generateDebugResValues
 > Task :CordovaLib:writeDebugAarMetadata
+> Task :app:generateDebugResValues
+> Task :app:checkDebugAarMetadata
 
 > Task :CordovaLib:compileDebugRenderscript
 The RenderScript APIs are deprecated. They will be removed in Android Gradle plugin 9.0. See the following link for a guide to migrate from RenderScript: https://developer.android.com/guide/topics/renderscript/migrate
 
 > Task :CordovaLib:generateDebugResValues
 > Task :CordovaLib:generateDebugResources
-> Task :app:checkDebugAarMetadata
 > Task :CordovaLib:packageDebugResources
 > Task :app:mapDebugSourceSetPaths
 > Task :app:generateDebugResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
 > Task :CordovaLib:extractDeepLinksDebug
+> Task :CordovaLib:processDebugManifest
 > Task :CordovaLib:compileDebugLibraryResources
+> Task :CordovaLib:parseDebugLocalResources
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
 > Task :CordovaLib:generateDebugBuildConfig
 > Task :CordovaLib:javaPreCompileDebug
 > Task :app:mergeDebugShaders
@@ -97,28 +98,24 @@ The RenderScript APIs are deprecated. They will be removed in Android Gradle plu
 > Task :CordovaLib:compileDebugShaders NO-SOURCE
 > Task :CordovaLib:generateDebugAssets UP-TO-DATE
 > Task :CordovaLib:packageDebugAssets
-> Task :CordovaLib:processDebugManifest
-> Task :CordovaLib:parseDebugLocalResources
 > Task :app:mergeDebugResources
-> Task :app:mergeDebugAssets
-> Task :app:processDebugMainManifest
-> Task :app:processDebugManifest
 > Task :CordovaLib:generateDebugRFile
-> Task :app:processDebugJavaRes NO-SOURCE
-> Task :app:compressDebugAssets
+> Task :app:mergeDebugAssets
 
 > Task :CordovaLib:compileDebugJavaWithJavac
+
+> Task :app:processDebugJavaRes NO-SOURCE
 Note: Some input files use or override a deprecated API.
 Note: Recompile with -Xlint:deprecation for details.
-
 > Task :CordovaLib:processDebugJavaRes
-> Task :CordovaLib:bundleLibResDebug
 > Task :CordovaLib:bundleLibCompileToJarDebug
-> Task :app:checkDebugDuplicateClasses
 > Task :app:processDebugManifestForPackage
+> Task :app:checkDebugDuplicateClasses
+> Task :app:compressDebugAssets
+> Task :CordovaLib:bundleLibResDebug
 > Task :app:desugarDebugFileDependencies
-> Task :app:mergeDebugJavaResource
 > Task :CordovaLib:bundleLibRuntimeToJarDebug
+> Task :app:mergeDebugJavaResource
 > Task :app:mergeDebugJniLibFolders
 > Task :CordovaLib:mergeDebugJniLibFolders
 > Task :CordovaLib:mergeDebugNativeLibs NO-SOURCE
@@ -132,41 +129,70 @@ Unable to strip the following libraries, packaging them as they are: libcomPro.s
 > Task :app:writeDebugAppMetadata
 > Task :app:writeDebugSigningConfigVersions
 > Task :app:processDebugResources
+> Task :app:mergeLibDexDebug
+> Task :app:mergeExtDexDebug
 
-> Task :app:compileDebugJavaWithJavac
-/Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1245: error: cannot find symbol
+> Task :app:compileDebugJavaWithJavac FAILED
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1267: error: cannot find symbol
 UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
 ^
 symbol: variable USB_RECIP_INTERFACE
 location: class UsbConstants
-/Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1287: error: cannot find symbol
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1316: error: cannot find symbol
 UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
 ^
 symbol: variable USB_RECIP_INTERFACE
 location: class UsbConstants
-/Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1304: error: cannot find symbol
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1333: error: cannot find symbol
 UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
 ^
 symbol: variable USB_RECIP_INTERFACE
 location: class UsbConstants
-/Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1394: error: cannot find symbol
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1434: error: cannot find symbol
 UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
 ^
 symbol: variable USB_RECIP_INTERFACE
 location: class UsbConstants
-/Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1410: error: cannot find symbol
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1450: error: cannot find symbol
 UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
 ^
 symbol: variable USB_RECIP_INTERFACE
+location: class UsbConstants
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1490: error: cannot find symbol
+UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+^
+symbol: variable USB_RECIP_INTERFACE
+location: class UsbConstants
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1506: error: cannot find symbol
+UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+^
+symbol: variable USB_RECIP_INTERFACE
+location: class UsbConstants
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1522: error: cannot find symbol
+UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+^
+symbol: variable USB_RECIP_INTERFACE
+location: class UsbConstants
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1532: error: cannot find symbol
+UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+^
+symbol: variable USB_RECIP_INTERFACE
+location: class UsbConstants
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1609: error: cannot find symbol
+UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | UsbConstants.USB_RECIP_DEVICE,
+^
+symbol: variable USB_RECIP_DEVICE
+location: class UsbConstants
+/Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/app/src/main/java/com/cordova/plugin/UsbExternalCamera.java:1623: error: cannot find symbol
+UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | UsbConstants.USB_RECIP_DEVICE,
+^
+symbol: variable USB_RECIP_DEVICE
 location: class UsbConstants
 Note: Some input files use or override a deprecated API.
 Note: Recompile with -Xlint:deprecation for details.
 Note: Some input files use unchecked or unsafe operations.
 Note: Recompile with -Xlint:unchecked for details.
-5 errors
-
-> Task :app:compileDebugJavaWithJavac FAILED
-> Task :app:mergeExtDexDebug
+11 errors
 
 FAILURE: Build failed with an exception.
 
@@ -181,12 +207,12 @@ Execution failed for task ':app:compileDebugJavaWithJavac'.
 
 * Get more help at https://help.gradle.org
 
-BUILD FAILED in 36s
+BUILD FAILED in 9s
 
 Deprecated Gradle features were used in this build, making it incompatible with Gradle 8.0.
 
 You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
 
 See https://docs.gradle.org/7.6/userguide/command_line_interface.html#sec:command_line_warnings
-47 actionable tasks: 47 executed
-Command failed with exit code 1: /Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/gradlew -b /Users/admin/build-server/1754642024771/inde-container24.5/platforms/android/build.gradle cdvBuildDebug
+48 actionable tasks: 48 executed
+Command failed with exit code 1: /Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/gradlew -b /Users/admin/build-server/1754649709609/inde-container24.5/platforms/android/build.gradle cdvBuildDebug
