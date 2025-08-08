@@ -78,6 +78,8 @@ public class UsbExternalCamera extends CordovaPlugin {
     private int vcInterfaceNumber = -1; // bInterfaceNumber for VideoControl
     private int cameraTerminalId = -1;  // bTerminalID for ITT_CAMERA
     private int processingUnitId = -1;  // bUnitID for Processing Unit (optional)
+    private int exposureAbsoluteMin = 0;
+    private int exposureAbsoluteMax = 0;
     
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
@@ -110,6 +112,12 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return setUvcFocusAbsolute(args, callbackContext);
             case "debugUvcControls":
                 return debugUvcControls(callbackContext);
+            case "setUvcAutoExposure":
+                return setUvcAutoExposure(args, callbackContext);
+            case "setUvcExposureAbsolute":
+                return setUvcExposureAbsolute(args, callbackContext);
+            case "debugUvcExposure":
+                return debugUvcExposure(callbackContext);
             default:
                 return false;
         }
@@ -1432,6 +1440,194 @@ public class UsbExternalCamera extends CordovaPlugin {
         return true;
     }
 
+    private boolean setUvcAutoExposure(JSONArray args, CallbackContext callbackContext) {
+        try {
+            if (args.length() == 0 || args.isNull(0)) {
+                callbackContext.error("Missing enable parameter");
+                return true;
+            }
+            boolean enable = args.getBoolean(0);
+            if (!initUvcConnection()) {
+                callbackContext.error("Failed to initialize UVC connection");
+                return true;
+            }
+            suspendCameraForUvc();
+            try {
+                int wIndex = getWIndexForCameraTerminal();
+                byte[] data = new byte[1];
+                // Per UVC, Auto Exposure Mode (AEM) è in Processing Unit (PU) 0x02XX o CT? Standard è PU: PU_AE_MODE_CONTROL = 0x0200
+                // Valori tipici: 0x01 Manual, 0x02 Auto, 0x04 Shutter Priority, 0x08 Aperture Priority
+                data[0] = (byte) (enable ? 0x02 : 0x01);
+                // Preferisci PU se disponibile
+                int wIndexPU = (processingUnitId > 0 ? ((processingUnitId & 0xFF) << 8) | (vcInterfaceNumber & 0xFF) : wIndex);
+                int result = uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                    0x01, // SET_CUR
+                    0x0200, // PU_AE_MODE_CONTROL
+                    wIndexPU,
+                    data,
+                    data.length,
+                    1000
+                );
+                if (result >= 0) {
+                    callbackContext.success("AutoExposure " + (enable ? "enabled" : "disabled"));
+                } else {
+                    // Fallback: prova sull'entity Camera Terminal se il device implementa lì (raro)
+                    int result2 = uvcConnection.controlTransfer(
+                        UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                        0x01,
+                        0x0200,
+                        wIndex,
+                        data,
+                        data.length,
+                        1000
+                    );
+                    if (result2 >= 0) {
+                        callbackContext.success("AutoExposure " + (enable ? "enabled" : "disabled"));
+                    } else {
+                        callbackContext.error("Failed to set AutoExposure: PU=" + result + ", CT=" + result2);
+                    }
+                }
+            } finally {
+                releaseUvcConnection();
+                resumeCameraAfterUvc();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting UVC Auto Exposure", e);
+            callbackContext.error("Error: " + e.getMessage());
+        }
+        return true;
+    }
+
+    private boolean setUvcExposureAbsolute(JSONArray args, CallbackContext callbackContext) {
+        try {
+            double normalized = args.getDouble(0); // 0..1
+            if (normalized < 0.0 || normalized > 1.0) {
+                callbackContext.error("Exposure value must be between 0.0 and 1.0");
+                return true;
+            }
+            if (!initUvcConnection()) {
+                callbackContext.error("Failed to initialize UVC connection");
+                return true;
+            }
+            suspendCameraForUvc();
+            try {
+                int wIndex = getWIndexForCameraTerminal();
+                // Disabilita Auto Exposure prima
+                byte[] aem = new byte[]{0x01}; // Manual
+                int wIndexPU = (processingUnitId > 0 ? ((processingUnitId & 0xFF) << 8) | (vcInterfaceNumber & 0xFF) : wIndex);
+                uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                    0x01,
+                    0x0200, // PU_AE_MODE_CONTROL
+                    wIndexPU,
+                    aem,
+                    aem.length,
+                    1000
+                );
+
+                // Calcola valore assoluto nell'intervallo letto
+                if (exposureAbsoluteMax <= exposureAbsoluteMin) {
+                    readExposureAbsoluteRange();
+                }
+                int absVal;
+                if (exposureAbsoluteMax > exposureAbsoluteMin) {
+                    absVal = (int) (exposureAbsoluteMin + normalized * (exposureAbsoluteMax - exposureAbsoluteMin));
+                } else {
+                    // Fallback a un range tipico (1..10000 unità da 100µs)
+                    exposureAbsoluteMin = 1;
+                    exposureAbsoluteMax = 10000;
+                    absVal = (int) (exposureAbsoluteMin + normalized * (exposureAbsoluteMax - exposureAbsoluteMin));
+                }
+
+                byte[] data = new byte[4];
+                data[0] = (byte) (absVal & 0xFF);
+                data[1] = (byte) ((absVal >> 8) & 0xFF);
+                data[2] = (byte) ((absVal >> 16) & 0xFF);
+                data[3] = (byte) ((absVal >> 24) & 0xFF);
+
+                int result = uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                    0x01, // SET_CUR
+                    0x0400, // CT_EXPOSURE_TIME_ABSOLUTE_CONTROL
+                    wIndex,
+                    data,
+                    data.length,
+                    1000
+                );
+                if (result >= 0) {
+                    callbackContext.success("Exposure set to " + absVal);
+                } else {
+                    // Fallback: prova wIndex swapped
+                    int altWIndex = getWIndexForCameraTerminalSwapped();
+                    int result2 = uvcConnection.controlTransfer(
+                        UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                        0x01,
+                        0x0400,
+                        altWIndex,
+                        data,
+                        data.length,
+                        1000
+                    );
+                    if (result2 >= 0) {
+                        callbackContext.success("Exposure set to " + absVal);
+                    } else {
+                        callbackContext.error("Failed to set Exposure: primary=" + result + ", swapped=" + result2);
+                    }
+                }
+            } finally {
+                releaseUvcConnection();
+                resumeCameraAfterUvc();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting UVC Exposure Absolute", e);
+            callbackContext.error("Error: " + e.getMessage());
+        }
+        return true;
+    }
+
+    private boolean debugUvcExposure(CallbackContext callbackContext) {
+        if (!initUvcConnection()) {
+            callbackContext.error("Failed to initialize UVC connection");
+            return true;
+        }
+        suspendCameraForUvc();
+        StringBuilder dbg = new StringBuilder();
+        try {
+            int wIndex = getWIndexForCameraTerminal();
+            byte[] info = new byte[1];
+            int rInfo = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                0x86,
+                0x0400,
+                wIndex,
+                info,
+                info.length,
+                1000
+            );
+            dbg.append("CT_EXPOSURE GET_INFO: ").append(rInfo >= 0 ? (info[0] & 0xFF) : rInfo).append("\n");
+            byte[] cur = new byte[4];
+            int rCur = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                0x81,
+                0x0400,
+                wIndex,
+                cur,
+                cur.length,
+                1000
+            );
+            int curVal = (rCur >= 0) ? ((cur[3] & 0xFF) << 24 | (cur[2] & 0xFF) << 16 | (cur[1] & 0xFF) << 8 | (cur[0] & 0xFF)) : rCur;
+            dbg.append("CT_EXPOSURE GET_CUR: ").append(curVal).append("\n");
+        } catch (Exception e) {
+            dbg.append("EXC: ").append(e.getMessage());
+        }
+        Log.d(TAG, dbg.toString());
+        callbackContext.success(dbg.toString());
+        releaseUvcConnection();
+        resumeCameraAfterUvc();
+        return true;
+    }
+
     private boolean initUvcConnection() {
         if (uvcConnection != null && videoControlInterface != null) {
             return true;
@@ -1492,6 +1688,8 @@ public class UsbExternalCamera extends CordovaPlugin {
             
             // Leggi il range del Focus Absolute
             readFocusAbsoluteRange();
+            // Leggi il range dell'Exposure Absolute
+            readExposureAbsoluteRange();
             
             Log.d(TAG, "UVC connection initialized successfully");
             return true;
@@ -1543,6 +1741,42 @@ public class UsbExternalCamera extends CordovaPlugin {
             Log.e(TAG, "Error reading focus range", e);
             focusAbsoluteMin = 0;
             focusAbsoluteMax = 255;
+        }
+    }
+
+    private void readExposureAbsoluteRange() {
+        try {
+            int wIndex = getWIndexForCameraTerminal();
+            // Exposure Absolute is 4 bytes per UVC 1.5 (milliseconds in 100µs units), many cams accept 2 bytes; leggere 4
+            byte[] minData = new byte[4];
+            int rmin = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                0x82, // GET_MIN
+                0x0400, // CT_EXPOSURE_TIME_ABSOLUTE_CONTROL
+                wIndex,
+                minData,
+                minData.length,
+                1000
+            );
+            byte[] maxData = new byte[4];
+            int rmax = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                0x83, // GET_MAX
+                0x0400,
+                wIndex,
+                maxData,
+                maxData.length,
+                1000
+            );
+            if (rmin >= 0 && rmax >= 0) {
+                exposureAbsoluteMin = (minData[3] & 0xFF) << 24 | (minData[2] & 0xFF) << 16 | (minData[1] & 0xFF) << 8 | (minData[0] & 0xFF);
+                exposureAbsoluteMax = (maxData[3] & 0xFF) << 24 | (maxData[2] & 0xFF) << 16 | (maxData[1] & 0xFF) << 8 | (maxData[0] & 0xFF);
+                Log.d(TAG, "Exposure Absolute range: " + exposureAbsoluteMin + " - " + exposureAbsoluteMax);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error reading exposure range", e);
+            exposureAbsoluteMin = 0;
+            exposureAbsoluteMax = 0;
         }
     }
 
@@ -1621,6 +1855,34 @@ public class UsbExternalCamera extends CordovaPlugin {
                  .append("\n");
         } catch (Exception e) {
             debug.append("CT_FOCUS_ABSOLUTE_CONTROL EXC: ").append(e.getMessage()).append("\n");
+        }
+        // MIN/MAX for CT_EXPOSURE_TIME_ABSOLUTE_CONTROL
+        try {
+            byte[] min = new byte[4];
+            int rmin = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                0x82, // GET_MIN
+                0x0400,
+                wIndex,
+                min,
+                min.length,
+                1000
+            );
+            byte[] max = new byte[4];
+            int rmax = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                0x83, // GET_MAX
+                0x0400,
+                wIndex,
+                max,
+                max.length,
+                1000
+            );
+            int minVal = (rmin >= 0) ? ((min[3] & 0xFF) << 24 | (min[2] & 0xFF) << 16 | (min[1] & 0xFF) << 8 | (min[0] & 0xFF)) : rmin;
+            int maxVal = (rmax >= 0) ? ((max[3] & 0xFF) << 24 | (max[2] & 0xFF) << 16 | (max[1] & 0xFF) << 8 | (max[0] & 0xFF)) : rmax;
+            debug.append("CT_EXPOSURE_TIME_ABSOLUTE_CONTROL MIN/MAX: ").append(minVal).append("/").append(maxVal).append("\n");
+        } catch (Exception e) {
+            debug.append("CT_EXPOSURE_TIME_ABSOLUTE_CONTROL EXC: ").append(e.getMessage()).append("\n");
         }
         
         Log.d(TAG, debug.toString());
