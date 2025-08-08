@@ -1259,8 +1259,6 @@ public class UsbExternalCamera extends CordovaPlugin {
             // Sospendi la sessione Camera2 per evitare conflitti con il driver UVC
             suspendCameraForUvc();
             try {
-                // Assicurati altsetting 0 per VC
-                setInterfaceAltZero();
                 // Usa il Camera Terminal corretto
                 int wIndex = getWIndexForCameraTerminal();
                 byte[] data = new byte[1];
@@ -1298,6 +1296,8 @@ public class UsbExternalCamera extends CordovaPlugin {
                     }
                 }
             } finally {
+                // Rilascia subito la connessione UVC per non bloccare l'external camera provider
+                releaseUvcConnection();
                 resumeCameraAfterUvc();
             }
             
@@ -1325,7 +1325,6 @@ public class UsbExternalCamera extends CordovaPlugin {
             
             // Sospendi la sessione Camera2 durante i control transfer
             suspendCameraForUvc();
-            setInterfaceAltZero();
             int wIndex = getWIndexForCameraTerminal();
             
             // Disabilita prima l'autofocus (CT_FOCUS_AUTO_CONTROL)
@@ -1381,7 +1380,8 @@ public class UsbExternalCamera extends CordovaPlugin {
                 }
             }
             
-            // Ripristina la sessione Camera2
+            // Rilascia subito la connessione UVC per non bloccare l'enumerazione e ripristina la sessione Camera2
+            releaseUvcConnection();
             resumeCameraAfterUvc();
             
         } catch (Exception e) {
@@ -1434,12 +1434,7 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return false;
             }
             
-            if (!uvcConnection.claimInterface(videoControlInterface, true)) {
-                Log.e(TAG, "Failed to claim VideoControl interface");
-                uvcConnection.close();
-                uvcConnection = null;
-                return false;
-            }
+            // Non claim-iamo l'interfaccia: i control transfer su EP0 non richiedono claim e così evitiamo conflitti
             
             // Salva device e bInterfaceNumber
             uvcDevice = logitechDevice;
@@ -1584,7 +1579,8 @@ public class UsbExternalCamera extends CordovaPlugin {
         Log.d(TAG, debug.toString());
         callbackContext.success(debug.toString());
         
-        // Ripristina la preview
+        // Rilascia subito la connessione UVC e ripristina la preview
+        releaseUvcConnection();
         resumeCameraAfterUvc();
         return true;
     }
@@ -1623,7 +1619,13 @@ public class UsbExternalCamera extends CordovaPlugin {
         try {
             // Riapri la camera e ricrea la preview
             if (cameraManager != null && externalCameraId != null) {
-                openCameraDevice();
+                if (backgroundHandler != null) {
+                    backgroundHandler.postDelayed(() -> {
+                        try { openCameraDevice(); } catch (Exception e) { Log.w(TAG, "openCameraDevice (delayed) failed", e); }
+                    }, 300);
+                } else {
+                    openCameraDevice();
+                }
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to resume preview after UVC control", e);
@@ -1705,13 +1707,22 @@ public class UsbExternalCamera extends CordovaPlugin {
     }
 
     // Imposta sempre l'altsetting 0 per l'interfaccia VC prima dei control transfer
-    private void setInterfaceAltZero() {
+    // setInterfaceAltZero rimosso: evitiamo claim che può sottrarre l'interfaccia al provider esterno
+
+    // Rilascia interfaccia e chiude la connessione UVC per non bloccare l'external camera provider
+    private void releaseUvcConnection() {
         try {
-            if (uvcConnection != null && videoControlInterface != null) {
-                uvcConnection.setInterface(videoControlInterface);
+            if (uvcConnection != null) {
+                try {
+                    if (videoControlInterface != null) {
+                        uvcConnection.releaseInterface(videoControlInterface);
+                    }
+                } catch (Exception ignored) {}
+                try { uvcConnection.close(); } catch (Exception ignored) {}
             }
-        } catch (Exception e) {
-            Log.w(TAG, "setInterfaceAltZero failed", e);
+        } finally {
+            uvcConnection = null;
+            videoControlInterface = null;
         }
     }
 }
