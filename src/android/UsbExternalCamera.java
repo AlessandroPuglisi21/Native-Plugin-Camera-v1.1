@@ -1277,7 +1277,7 @@ public class UsbExternalCamera extends CordovaPlugin {
                     Log.d(TAG, "UVC AutoFocus set (CT)=" + enable + ", wIndex=0x" + Integer.toHexString(wIndex));
                     callbackContext.success("AutoFocus " + (enable ? "enabled" : "disabled"));
                 } else {
-                    // Fallback: prova wIndex invertito
+                    // Fallback 1: prova wIndex invertito
                     int altWIndex = getWIndexForCameraTerminalSwapped();
                     int result2 = uvcConnection.controlTransfer(
                         UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
@@ -1292,7 +1292,27 @@ public class UsbExternalCamera extends CordovaPlugin {
                         Log.d(TAG, "UVC AutoFocus set using swapped wIndex=0x" + Integer.toHexString(altWIndex));
                         callbackContext.success("AutoFocus " + (enable ? "enabled" : "disabled"));
                     } else {
-                        callbackContext.error("Failed to set AutoFocus: primary=" + result + ", swapped=" + result2);
+                        // Fallback 2: prova via Processing Unit se esiste (alcune cam instradano focus auto lì)
+                        if (processingUnitId > 0) {
+                            int wIndexPU = ((processingUnitId & 0xFF) << 8) | (vcInterfaceNumber & 0xFF);
+                            int result3 = uvcConnection.controlTransfer(
+                                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                                0x01,
+                                0x0800,
+                                wIndexPU,
+                                data,
+                                data.length,
+                                1000
+                            );
+                            if (result3 >= 0) {
+                                Log.d(TAG, "UVC AutoFocus set via ProcessingUnit wIndex=0x" + Integer.toHexString(wIndexPU));
+                                callbackContext.success("AutoFocus " + (enable ? "enabled" : "disabled"));
+                            } else {
+                                callbackContext.error("Failed to set AutoFocus: primary=" + result + ", swapped=" + result2 + ", PU=" + result3);
+                            }
+                        } else {
+                            callbackContext.error("Failed to set AutoFocus: primary=" + result + ", swapped=" + result2);
+                        }
                     }
                 }
             } finally {
@@ -1361,7 +1381,7 @@ public class UsbExternalCamera extends CordovaPlugin {
                 Log.d(TAG, "UVC Focus Absolute set to: " + absoluteValue + " (normalized: " + normalizedValue + ")");
                 callbackContext.success("Focus set to " + absoluteValue);
             } else {
-                // Fallback: prova wIndex invertito
+                // Fallback 1: prova wIndex invertito
                 int altWIndex = getWIndexForCameraTerminalSwapped();
                 int result2 = uvcConnection.controlTransfer(
                     UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
@@ -1376,7 +1396,27 @@ public class UsbExternalCamera extends CordovaPlugin {
                     Log.d(TAG, "UVC Focus Absolute set using swapped wIndex to: " + absoluteValue);
                     callbackContext.success("Focus set to " + absoluteValue);
                 } else {
-                    callbackContext.error("Failed to set Focus Absolute: primary=" + result + ", swapped=" + result2);
+                    // Fallback 2: prova via Processing Unit se esiste
+                    if (processingUnitId > 0) {
+                        int wIndexPU = ((processingUnitId & 0xFF) << 8) | (vcInterfaceNumber & 0xFF);
+                        int result3 = uvcConnection.controlTransfer(
+                            UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                            0x01,
+                            0x0600,
+                            wIndexPU,
+                            data,
+                            data.length,
+                            1000
+                        );
+                        if (result3 >= 0) {
+                            Log.d(TAG, "UVC Focus Absolute set via ProcessingUnit to: " + absoluteValue);
+                            callbackContext.success("Focus set to " + absoluteValue);
+                        } else {
+                            callbackContext.error("Failed to set Focus Absolute: primary=" + result + ", swapped=" + result2 + ", PU=" + result3);
+                        }
+                    } else {
+                        callbackContext.error("Failed to set Focus Absolute: primary=" + result + ", swapped=" + result2);
+                    }
                 }
             }
             
@@ -1434,7 +1474,14 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return false;
             }
             
-            // Non claim-iamo l'interfaccia: i control transfer su EP0 non richiedono claim e così evitiamo conflitti
+            // Claim veloce dell'interfaccia VC per garantire controllo stabile; rilasceremo immediatamente dopo i transfer
+            try {
+                uvcConnection.claimInterface(videoControlInterface, true);
+                // Se supportato, assicurati dell'altsetting 0
+                try { uvcConnection.setInterface(videoControlInterface); } catch (Exception ignored) {}
+            } catch (Exception e) {
+                Log.w(TAG, "claimInterface VC failed", e);
+            }
             
             // Salva device e bInterfaceNumber
             uvcDevice = logitechDevice;
@@ -1707,7 +1754,7 @@ public class UsbExternalCamera extends CordovaPlugin {
     }
 
     // Imposta sempre l'altsetting 0 per l'interfaccia VC prima dei control transfer
-    // setInterfaceAltZero rimosso: evitiamo claim che può sottrarre l'interfaccia al provider esterno
+    // Nota: gestiamo il claim e l'alt setting direttamente in initUvcConnection per la massima compatibilità
 
     // Rilascia interfaccia e chiude la connessione UVC per non bloccare l'external camera provider
     private void releaseUvcConnection() {
