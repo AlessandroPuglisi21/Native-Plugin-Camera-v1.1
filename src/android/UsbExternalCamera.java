@@ -103,6 +103,8 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return setUvcAutoFocus(args, callbackContext);
             case "setUvcFocusAbsolute":
                 return setUvcFocusAbsolute(args, callbackContext);
+            case "debugUvcControls":
+                return debugUvcControls(callbackContext);
             default:
                 return false;
         }
@@ -1249,6 +1251,11 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return true;
             }
             
+            // Prova diversi approcci per la Logitech C920
+            boolean success = false;
+            String lastError = "";
+            
+            // Approccio 1: Standard UVC
             byte[] data = new byte[1];
             data[0] = (byte) (enable ? 1 : 0);
             
@@ -1256,17 +1263,62 @@ public class UsbExternalCamera extends CordovaPlugin {
                 UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
                 0x01, // SET_CUR
                 0x0800, // CT_FOCUS_AUTO_CONTROL
-                videoControlInterface.getId() << 8 | 0x01,
+                (videoControlInterface.getId() << 8) | 0x01, // wIndex: interface | unit ID
                 data,
                 data.length,
                 1000
             );
             
             if (result >= 0) {
-                Log.d(TAG, "UVC AutoFocus set to: " + enable);
+                success = true;
+                Log.d(TAG, "UVC AutoFocus set via standard method: " + enable);
+            } else {
+                lastError = "Standard method failed: " + result;
+                Log.w(TAG, lastError);
+                
+                // Approccio 2: Prova con unit ID diverso (spesso 0x02 per Processing Unit)
+                result = uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                    0x01, // SET_CUR
+                    0x0800, // CT_FOCUS_AUTO_CONTROL
+                    (videoControlInterface.getId() << 8) | 0x02, // Processing Unit
+                    data,
+                    data.length,
+                    1000
+                );
+                
+                if (result >= 0) {
+                    success = true;
+                    Log.d(TAG, "UVC AutoFocus set via Processing Unit: " + enable);
+                } else {
+                    lastError += ", Processing Unit failed: " + result;
+                    Log.w(TAG, "Processing Unit method failed: " + result);
+                    
+                    // Approccio 3: Prova con wValue diverso (alcuni device usano 0x0100)
+                    result = uvcConnection.controlTransfer(
+                        UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                        0x01, // SET_CUR
+                        0x0100, // Alternative control selector
+                        (videoControlInterface.getId() << 8) | 0x01,
+                        data,
+                        data.length,
+                        1000
+                    );
+                    
+                    if (result >= 0) {
+                        success = true;
+                        Log.d(TAG, "UVC AutoFocus set via alternative selector: " + enable);
+                    } else {
+                        lastError += ", Alternative selector failed: " + result;
+                        Log.w(TAG, "Alternative selector method failed: " + result);
+                    }
+                }
+            }
+            
+            if (success) {
                 callbackContext.success("AutoFocus " + (enable ? "enabled" : "disabled"));
             } else {
-                callbackContext.error("Failed to set AutoFocus: " + result);
+                callbackContext.error("Failed to set AutoFocus. Tried multiple methods: " + lastError);
             }
             
         } catch (Exception e) {
@@ -1438,5 +1490,49 @@ public class UsbExternalCamera extends CordovaPlugin {
             focusAbsoluteMin = 0;
             focusAbsoluteMax = 255;
         }
+    }
+
+    private boolean debugUvcControls(CallbackContext callbackContext) {
+        if (!initUvcConnection()) {
+            callbackContext.error("Failed to initialize UVC connection");
+            return true;
+        }
+        
+        StringBuilder debug = new StringBuilder();
+        debug.append("UVC Debug Info:\n");
+        debug.append("Interface ID: ").append(videoControlInterface.getId()).append("\n");
+        
+        // Prova a leggere le capacità del focus auto
+        for (int unitId = 1; unitId <= 3; unitId++) {
+            for (int selector : new int[]{0x0800, 0x0100, 0x0200}) {
+                try {
+                    byte[] data = new byte[1];
+                    int result = uvcConnection.controlTransfer(
+                        UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                        0x81, // GET_CUR
+                        selector,
+                        (videoControlInterface.getId() << 8) | unitId,
+                        data,
+                        data.length,
+                        1000
+                    );
+                    
+                    if (result >= 0) {
+                        debug.append(String.format("Unit %d, Selector 0x%04X: SUCCESS (value: %d)\n", 
+                            unitId, selector, data[0] & 0xFF));
+                    } else {
+                        debug.append(String.format("Unit %d, Selector 0x%04X: FAILED (%d)\n", 
+                            unitId, selector, result));
+                    }
+                } catch (Exception e) {
+                    debug.append(String.format("Unit %d, Selector 0x%04X: EXCEPTION (%s)\n", 
+                        unitId, selector, e.getMessage()));
+                }
+            }
+        }
+        
+        Log.d(TAG, debug.toString());
+        callbackContext.success(debug.toString());
+        return true;
     }
 }
