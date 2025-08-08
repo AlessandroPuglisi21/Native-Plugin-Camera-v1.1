@@ -1242,14 +1242,14 @@ public class UsbExternalCamera extends CordovaPlugin {
             data[0] = (byte) (enable ? 1 : 0);
             
             int result = uvcConnection.controlTransfer(
-            UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
-            0x01, // SET_CUR
-            0x0800, // CT_FOCUS_AUTO_CONTROL
-            videoControlInterface.getId() << 8 | 0x01, // wIndex: interface | unit
-            data,
-            data.length,
-            1000
-        );
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
+                0x01, // SET_CUR
+                0x0800, // CT_FOCUS_AUTO_CONTROL
+                videoControlInterface.getId() << 8 | 0x01, // wIndex: interface | unit
+                data,
+                data.length,
+                1000
+            );
             
             if (result >= 0) {
                 Log.d(TAG, "UVC AutoFocus set to: " + enable);
@@ -1284,14 +1284,14 @@ public class UsbExternalCamera extends CordovaPlugin {
             byte[] autoFocusData = new byte[1];
             autoFocusData[0] = 0;
             uvcConnection.controlTransfer(
-            UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
-            0x01, // SET_CUR
-            0x0800, // CT_FOCUS_AUTO_CONTROL
-            videoControlInterface.getId() << 8 | 0x01,
-            autoFocusData,
-            autoFocusData.length,
-            1000
-        );
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
+                0x01, // SET_CUR
+                0x0800, // CT_FOCUS_AUTO_CONTROL
+                videoControlInterface.getId() << 8 | 0x01,
+                autoFocusData,
+                autoFocusData.length,
+                1000
+            );
             
             // Calcola il valore assoluto
             int absoluteValue = (int) (focusAbsoluteMin + (normalizedValue * (focusAbsoluteMax - focusAbsoluteMin)));
@@ -1301,14 +1301,14 @@ public class UsbExternalCamera extends CordovaPlugin {
             data[1] = (byte) ((absoluteValue >> 8) & 0xFF);
             
             int result = uvcConnection.controlTransfer(
-            UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
-            0x01, // SET_CUR
-            0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
-            videoControlInterface.getId() << 8 | 0x01,
-            data,
-            data.length,
-            1000
-        );
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
+                0x01, // SET_CUR
+                0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
+                videoControlInterface.getId() << 8 | 0x01,
+                data,
+                data.length,
+                1000
+            );
             
             if (result >= 0) {
                 Log.d(TAG, "UVC Focus Absolute set to: " + absoluteValue + " (normalized: " + normalizedValue + ")");
@@ -1391,14 +1391,14 @@ public class UsbExternalCamera extends CordovaPlugin {
             // GET_MIN
             byte[] minData = new byte[2];
             int result = uvcConnection.controlTransfer(
-            UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
-            0x82, // GET_MIN
-            0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
-            videoControlInterface.getId() << 8 | 0x01,
-            minData,
-            minData.length,
-            1000
-        );
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
+                0x82, // GET_MIN
+                0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
+                videoControlInterface.getId() << 8 | 0x01,
+                minData,
+                minData.length,
+                1000
+            );
             
             if (result >= 0) {
                 focusAbsoluteMin = (minData[1] << 8) | (minData[0] & 0xFF);
@@ -1407,14 +1407,14 @@ public class UsbExternalCamera extends CordovaPlugin {
             // GET_MAX
             byte[] maxData = new byte[2];
             result = uvcConnection.controlTransfer(
-            UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
-            0x83, // GET_MAX
-            0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
-            videoControlInterface.getId() << 8 | 0x01,
-            maxData,
-            maxData.length,
-            1000
-        );
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
+                0x83, // GET_MAX
+                0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
+                videoControlInterface.getId() << 8 | 0x01,
+                maxData,
+                maxData.length,
+                1000
+            );
             
             if (result >= 0) {
                 focusAbsoluteMax = (maxData[1] << 8) | (maxData[0] & 0xFF);
