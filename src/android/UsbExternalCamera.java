@@ -1231,7 +1231,18 @@ public class UsbExternalCamera extends CordovaPlugin {
 
     private boolean setUvcAutoFocus(JSONArray args, CallbackContext callbackContext) {
         try {
-            boolean enable = args.getBoolean(0);
+            if (args.length() == 0 || args.isNull(0)) {
+                callbackContext.error("Missing enable parameter");
+                return true;
+            }
+            
+            boolean enable;
+            try {
+                enable = args.getBoolean(0);
+            } catch (JSONException e) {
+                callbackContext.error("Enable parameter must be a boolean (true or false)");
+                return true;
+            }
             
             if (!initUvcConnection()) {
                 callbackContext.error("Failed to initialize UVC connection");
@@ -1242,10 +1253,10 @@ public class UsbExternalCamera extends CordovaPlugin {
             data[0] = (byte) (enable ? 1 : 0);
             
             int result = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
                 0x01, // SET_CUR
                 0x0800, // CT_FOCUS_AUTO_CONTROL
-                videoControlInterface.getId() << 8 | 0x01, // wIndex: interface | unit
+                videoControlInterface.getId() << 8 | 0x01,
                 data,
                 data.length,
                 1000
