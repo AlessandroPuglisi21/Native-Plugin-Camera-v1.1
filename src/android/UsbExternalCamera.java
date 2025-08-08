@@ -1453,40 +1453,49 @@ public class UsbExternalCamera extends CordovaPlugin {
             }
             suspendCameraForUvc();
             try {
-                int wIndex = getWIndexForCameraTerminal();
+                int wIndexCT = getWIndexForCameraTerminal();
                 byte[] data = new byte[1];
-                // Per UVC, Auto Exposure Mode (AEM) è in Processing Unit (PU) 0x02XX o CT? Standard è PU: PU_AE_MODE_CONTROL = 0x0200
-                // Valori tipici: 0x01 Manual, 0x02 Auto, 0x04 Shutter Priority, 0x08 Aperture Priority
+                // CT_AE_MODE_CONTROL: 0x01 Manual, 0x02 Auto, 0x04 Shutter, 0x08 Aperture
                 data[0] = (byte) (enable ? 0x02 : 0x01);
-                // Preferisci PU se disponibile
-                int wIndexPU = (processingUnitId > 0 ? ((processingUnitId & 0xFF) << 8) | (vcInterfaceNumber & 0xFF) : wIndex);
                 int result = uvcConnection.controlTransfer(
                     UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
                     0x01, // SET_CUR
-                    0x0200, // PU_AE_MODE_CONTROL
-                    wIndexPU,
+                    0x0200, // CT_AE_MODE_CONTROL
+                    wIndexCT,
                     data,
                     data.length,
                     1000
                 );
-                if (result >= 0) {
-                    callbackContext.success("AutoExposure " + (enable ? "enabled" : "disabled"));
-                } else {
-                    // Fallback: prova sull'entity Camera Terminal se il device implementa lì (raro)
-                    int result2 = uvcConnection.controlTransfer(
+                if (result < 0) {
+                    // Fallback: wIndex swapped
+                    int alt = getWIndexForCameraTerminalSwapped();
+                    result = uvcConnection.controlTransfer(
                         UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
                         0x01,
                         0x0200,
-                        wIndex,
+                        alt,
                         data,
                         data.length,
                         1000
                     );
-                    if (result2 >= 0) {
-                        callbackContext.success("AutoExposure " + (enable ? "enabled" : "disabled"));
-                    } else {
-                        callbackContext.error("Failed to set AutoExposure: PU=" + result + ", CT=" + result2);
-                    }
+                }
+                if (!enable && result >= 0) {
+                    // Portiamo AE Priority a 0 (preferisci frame rate) per assicurare controllo manuale
+                    byte[] pr = new byte[]{0x00};
+                    uvcConnection.controlTransfer(
+                        UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                        0x01,
+                        0x0300, // CT_AE_PRIORITY_CONTROL
+                        wIndexCT,
+                        pr,
+                        pr.length,
+                        1000
+                    );
+                }
+                if (result >= 0) {
+                    callbackContext.success("AutoExposure " + (enable ? "enabled" : "disabled"));
+                } else {
+                    callbackContext.error("Failed to set AutoExposure: " + result);
                 }
             } finally {
                 releaseUvcConnection();
@@ -1513,16 +1522,26 @@ public class UsbExternalCamera extends CordovaPlugin {
             suspendCameraForUvc();
             try {
                 int wIndex = getWIndexForCameraTerminal();
-                // Disabilita Auto Exposure prima
+                // Disabilita Auto Exposure prima (CT_AE_MODE_CONTROL -> Manual)
                 byte[] aem = new byte[]{0x01}; // Manual
-                int wIndexPU = (processingUnitId > 0 ? ((processingUnitId & 0xFF) << 8) | (vcInterfaceNumber & 0xFF) : wIndex);
                 uvcConnection.controlTransfer(
                     UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
                     0x01,
-                    0x0200, // PU_AE_MODE_CONTROL
-                    wIndexPU,
+                    0x0200, // CT_AE_MODE_CONTROL
+                    wIndex,
                     aem,
                     aem.length,
+                    1000
+                );
+                // Imposta AE Priority a 0 (opzionale ma utile)
+                byte[] pr = new byte[]{0x00};
+                uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                    0x01,
+                    0x0300, // CT_AE_PRIORITY_CONTROL
+                    wIndex,
+                    pr,
+                    pr.length,
                     1000
                 );
 
