@@ -108,6 +108,20 @@ var UsbCamera = {
         cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'debugUvcExposure', []);
     },
     
+    setUvcBrightness: function(value, successCallback, errorCallback) {
+        if (typeof value !== 'number' || value < 0 || value > 1) {
+            if (typeof errorCallback === 'function') {
+                errorCallback('Brightness value must be a number between 0.0 and 1.0');
+            }
+            return;
+        }
+        cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'setUvcBrightness', [value]);
+    },
+    
+    debugUvcBrightness: function(successCallback, errorCallback) {
+        cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'debugUvcBrightness', []);
+    },
+    
     debugUvcControls: function(successCallback, errorCallback) {
         cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'debugUvcControls', []);
     }

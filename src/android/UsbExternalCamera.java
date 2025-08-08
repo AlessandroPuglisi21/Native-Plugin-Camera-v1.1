@@ -80,6 +80,8 @@ public class UsbExternalCamera extends CordovaPlugin {
     private int processingUnitId = -1;  // bUnitID for Processing Unit (optional)
     private int exposureAbsoluteMin = 0;
     private int exposureAbsoluteMax = 0;
+    private int brightnessMin = 0;
+    private int brightnessMax = 0;
     
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
@@ -118,6 +120,10 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return setUvcExposureAbsolute(args, callbackContext);
             case "debugUvcExposure":
                 return debugUvcExposure(callbackContext);
+            case "setUvcBrightness":
+                return setUvcBrightness(args, callbackContext);
+            case "debugUvcBrightness":
+                return debugUvcBrightness(callbackContext);
             default:
                 return false;
         }
@@ -1647,6 +1653,97 @@ public class UsbExternalCamera extends CordovaPlugin {
         return true;
     }
 
+    private boolean setUvcBrightness(JSONArray args, CallbackContext callbackContext) {
+        try {
+            double normalized = args.getDouble(0); // 0..1
+            if (normalized < 0.0 || normalized > 1.0) {
+                callbackContext.error("Brightness value must be between 0.0 and 1.0");
+                return true;
+            }
+            if (!initUvcConnection()) {
+                callbackContext.error("Failed to initialize UVC connection");
+                return true;
+            }
+            suspendCameraForUvc();
+            try {
+                if (processingUnitId <= 0) {
+                    callbackContext.error("Processing Unit not found for Brightness control");
+                    return true;
+                }
+                int wIndexPU = ((processingUnitId & 0xFF) << 8) | (vcInterfaceNumber & 0xFF);
+                if (brightnessMax <= brightnessMin) {
+                    readBrightnessRange();
+                }
+                int abs;
+                if (brightnessMax > brightnessMin) {
+                    abs = (int) (brightnessMin + normalized * (brightnessMax - brightnessMin));
+                } else {
+                    // Fallback tipico: 0..255
+                    brightnessMin = 0;
+                    brightnessMax = 255;
+                    abs = (int) (brightnessMin + normalized * (brightnessMax - brightnessMin));
+                }
+                byte[] data = new byte[2];
+                data[0] = (byte) (abs & 0xFF);
+                data[1] = (byte) ((abs >> 8) & 0xFF);
+                int result = uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+                    0x01,
+                    0x0200, // PU_BRIGHTNESS_CONTROL
+                    wIndexPU,
+                    data,
+                    data.length,
+                    1000
+                );
+                if (result >= 0) {
+                    callbackContext.success("Brightness set to " + abs);
+                } else {
+                    callbackContext.error("Failed to set Brightness: " + result);
+                }
+            } finally {
+                releaseUvcConnection();
+                resumeCameraAfterUvc();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting UVC Brightness", e);
+            callbackContext.error("Error: " + e.getMessage());
+        }
+        return true;
+    }
+
+    private boolean debugUvcBrightness(CallbackContext callbackContext) {
+        if (!initUvcConnection()) {
+            callbackContext.error("Failed to initialize UVC connection");
+            return true;
+        }
+        suspendCameraForUvc();
+        StringBuilder dbg = new StringBuilder();
+        try {
+            if (processingUnitId > 0) {
+                int wIndexPU = ((processingUnitId & 0xFF) << 8) | (vcInterfaceNumber & 0xFF);
+                byte[] cur = new byte[2];
+                int r = uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                    0x81,
+                    0x0200,
+                    wIndexPU,
+                    cur,
+                    cur.length,
+                    1000
+                );
+                dbg.append("PU_BRIGHTNESS_CONTROL GET_CUR: ")
+                   .append(r >= 0 ? ((cur[1] << 8) | (cur[0] & 0xFF)) : r).append("\n");
+            }
+        } catch (Exception e) {
+            dbg.append("EXC: ").append(e.getMessage());
+        }
+        Log.d(TAG, dbg.toString());
+        callbackContext.success(dbg.toString());
+        releaseUvcConnection();
+        resumeCameraAfterUvc();
+        return true;
+    }
+
     private boolean initUvcConnection() {
         if (uvcConnection != null && videoControlInterface != null) {
             return true;
@@ -1709,6 +1806,8 @@ public class UsbExternalCamera extends CordovaPlugin {
             readFocusAbsoluteRange();
             // Leggi il range dell'Exposure Absolute
             readExposureAbsoluteRange();
+            // Leggi il range Brightness
+            readBrightnessRange();
             
             Log.d(TAG, "UVC connection initialized successfully");
             return true;
@@ -1796,6 +1895,43 @@ public class UsbExternalCamera extends CordovaPlugin {
             Log.w(TAG, "Error reading exposure range", e);
             exposureAbsoluteMin = 0;
             exposureAbsoluteMax = 0;
+        }
+    }
+
+    private void readBrightnessRange() {
+        try {
+            // Brightness è PU_BRIGHTNESS_CONTROL = 0x0200 sul Processing Unit
+            if (processingUnitId <= 0) return;
+            int wIndexPU = ((processingUnitId & 0xFF) << 8) | (vcInterfaceNumber & 0xFF);
+            byte[] min = new byte[2];
+            int rmin = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                0x82, // GET_MIN
+                0x0200,
+                wIndexPU,
+                min,
+                min.length,
+                1000
+            );
+            byte[] max = new byte[2];
+            int rmax = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                0x83, // GET_MAX
+                0x0200,
+                wIndexPU,
+                max,
+                max.length,
+                1000
+            );
+            if (rmin >= 0 && rmax >= 0) {
+                brightnessMin = (min[1] << 8) | (min[0] & 0xFF);
+                brightnessMax = (max[1] << 8) | (max[0] & 0xFF);
+                Log.d(TAG, "Brightness range: " + brightnessMin + " - " + brightnessMax);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error reading brightness range", e);
+            brightnessMin = 0;
+            brightnessMax = 0;
         }
     }
 
@@ -1902,6 +2038,39 @@ public class UsbExternalCamera extends CordovaPlugin {
             debug.append("CT_EXPOSURE_TIME_ABSOLUTE_CONTROL MIN/MAX: ").append(minVal).append("/").append(maxVal).append("\n");
         } catch (Exception e) {
             debug.append("CT_EXPOSURE_TIME_ABSOLUTE_CONTROL EXC: ").append(e.getMessage()).append("\n");
+        }
+        // MIN/MAX for PU_BRIGHTNESS_CONTROL
+        try {
+            if (processingUnitId > 0) {
+                int wIndexPU = ((processingUnitId & 0xFF) << 8) | (vcInterfaceNumber & 0xFF);
+                byte[] min = new byte[2];
+                int rmin = uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                    0x82, // GET_MIN
+                    0x0200,
+                    wIndexPU,
+                    min,
+                    min.length,
+                    1000
+                );
+                byte[] max = new byte[2];
+                int rmax = uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
+                    0x83, // GET_MAX
+                    0x0200,
+                    wIndexPU,
+                    max,
+                    max.length,
+                    1000
+                );
+                debug.append("PU_BRIGHTNESS_CONTROL MIN/MAX: ")
+                     .append(rmin >= 0 ? ((min[1] << 8) | (min[0] & 0xFF)) : rmin)
+                     .append("/")
+                     .append(rmax >= 0 ? ((max[1] << 8) | (max[0] & 0xFF)) : rmax)
+                     .append("\n");
+            }
+        } catch (Exception e) {
+            debug.append("PU_BRIGHTNESS_CONTROL EXC: ").append(e.getMessage()).append("\n");
         }
         
         Log.d(TAG, debug.toString());
