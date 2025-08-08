@@ -124,6 +124,8 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return setUvcBrightness(args, callbackContext);
             case "debugUvcBrightness":
                 return debugUvcBrightness(callbackContext);
+            case "recoverCamera":
+                return recoverCamera(callbackContext);
             default:
                 return false;
         }
@@ -1741,6 +1743,48 @@ public class UsbExternalCamera extends CordovaPlugin {
         callbackContext.success(dbg.toString());
         releaseUvcConnection();
         resumeCameraAfterUvc();
+        return true;
+    }
+
+    private boolean recoverCamera(CallbackContext callbackContext) {
+        cordova.getThreadPool().execute(() -> {
+            try {
+                // Rilascia qualsiasi connessione UVC pendente
+                releaseUvcConnection();
+                // Chiudi sessione e device se presenti
+                try {
+                    if (captureSession != null) {
+                        try { captureSession.stopRepeating(); } catch (Exception ignored) {}
+                        try { captureSession.close(); } catch (Exception ignored) {}
+                        captureSession = null;
+                    }
+                    if (cameraDevice != null) {
+                        try { cameraDevice.close(); } catch (Exception ignored) {}
+                        cameraDevice = null;
+                    }
+                } catch (Exception ignored) {}
+                isPreviewActive = false;
+                // Attendi che il provider rilasci la webcam
+                try { Thread.sleep(600); } catch (InterruptedException ignored) {}
+                // Assicurati che il CameraManager e il background thread esistano
+                if (cameraManager == null) {
+                    cameraManager = (CameraManager) cordova.getActivity().getSystemService(Context.CAMERA_SERVICE);
+                }
+                if (backgroundThread == null || backgroundHandler == null) {
+                    startBackgroundThread();
+                }
+                // Se non abbiamo più un ID, riesegui discovery; altrimenti riapri direttamente
+                if (externalCameraId == null) {
+                    initializeCamera();
+                } else {
+                    openCameraDevice();
+                }
+                callbackContext.success("Camera recovery attempted");
+            } catch (Exception e) {
+                Log.e(TAG, "Error recovering camera", e);
+                callbackContext.error("Failed to recover camera: " + e.getMessage());
+            }
+        });
         return true;
     }
 

@@ -124,6 +124,10 @@ var UsbCamera = {
     
     debugUvcControls: function(successCallback, errorCallback) {
         cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'debugUvcControls', []);
+    },
+    
+    recoverCamera: function(successCallback, errorCallback) {
+        cordova.exec(successCallback, errorCallback, 'UsbExternalCamera', 'recoverCamera', []);
     }
 };
 
