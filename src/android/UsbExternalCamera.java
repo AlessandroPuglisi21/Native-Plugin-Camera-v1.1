@@ -73,6 +73,11 @@ public class UsbExternalCamera extends CordovaPlugin {
     private UsbInterface videoControlInterface;
     private int focusAbsoluteMin = 0;
     private int focusAbsoluteMax = 255;
+    // UVC discovery data
+    private UsbDevice uvcDevice;
+    private int vcInterfaceNumber = -1; // bInterfaceNumber for VideoControl
+    private int cameraTerminalId = -1;  // bTerminalID for ITT_CAMERA
+    private int processingUnitId = -1;  // bUnitID for Processing Unit (optional)
     
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
@@ -1251,74 +1256,31 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return true;
             }
             
-            // Prova diversi approcci per la Logitech C920
-            boolean success = false;
-            String lastError = "";
-            
-            // Approccio 1: Standard UVC
-            byte[] data = new byte[1];
-            data[0] = (byte) (enable ? 1 : 0);
-            
-            int result = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
-                0x01, // SET_CUR
-                0x0800, // CT_FOCUS_AUTO_CONTROL
-                (videoControlInterface.getId() << 8) | 0x01, // wIndex: interface | unit ID
-                data,
-                data.length,
-                1000
-            );
-            
-            if (result >= 0) {
-                success = true;
-                Log.d(TAG, "UVC AutoFocus set via standard method: " + enable);
-            } else {
-                lastError = "Standard method failed: " + result;
-                Log.w(TAG, lastError);
-                
-                // Approccio 2: Prova con unit ID diverso (spesso 0x02 per Processing Unit)
-                result = uvcConnection.controlTransfer(
-                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
+            // Sospendi la sessione Camera2 per evitare conflitti con il driver UVC
+            suspendCameraForUvc();
+            try {
+                // Usa il Camera Terminal corretto
+                int wIndex = getWIndexForCameraTerminal();
+                byte[] data = new byte[1];
+                data[0] = (byte) (enable ? 1 : 0);
+                int result = uvcConnection.controlTransfer(
+                    UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
                     0x01, // SET_CUR
-                    0x0800, // CT_FOCUS_AUTO_CONTROL
-                    (videoControlInterface.getId() << 8) | 0x02, // Processing Unit
+                    0x0800, // CT_FOCUS_AUTO_CONTROL (1 byte)
+                    wIndex,
                     data,
                     data.length,
                     1000
                 );
-                
+
                 if (result >= 0) {
-                    success = true;
-                    Log.d(TAG, "UVC AutoFocus set via Processing Unit: " + enable);
+                    Log.d(TAG, "UVC AutoFocus set (CT)=" + enable + ", wIndex=0x" + Integer.toHexString(wIndex));
+                    callbackContext.success("AutoFocus " + (enable ? "enabled" : "disabled"));
                 } else {
-                    lastError += ", Processing Unit failed: " + result;
-                    Log.w(TAG, "Processing Unit method failed: " + result);
-                    
-                    // Approccio 3: Prova con wValue diverso (alcuni device usano 0x0100)
-                    result = uvcConnection.controlTransfer(
-                        UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01,
-                        0x01, // SET_CUR
-                        0x0100, // Alternative control selector
-                        (videoControlInterface.getId() << 8) | 0x01,
-                        data,
-                        data.length,
-                        1000
-                    );
-                    
-                    if (result >= 0) {
-                        success = true;
-                        Log.d(TAG, "UVC AutoFocus set via alternative selector: " + enable);
-                    } else {
-                        lastError += ", Alternative selector failed: " + result;
-                        Log.w(TAG, "Alternative selector method failed: " + result);
-                    }
+                    callbackContext.error("Failed to set AutoFocus: " + result);
                 }
-            }
-            
-            if (success) {
-                callbackContext.success("AutoFocus " + (enable ? "enabled" : "disabled"));
-            } else {
-                callbackContext.error("Failed to set AutoFocus. Tried multiple methods: " + lastError);
+            } finally {
+                resumeCameraAfterUvc();
             }
             
         } catch (Exception e) {
@@ -1343,14 +1305,18 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return true;
             }
             
-            // Disabilita prima l'autofocus
+            // Sospendi la sessione Camera2 durante i control transfer
+            suspendCameraForUvc();
+            int wIndex = getWIndexForCameraTerminal();
+            
+            // Disabilita prima l'autofocus (CT_FOCUS_AUTO_CONTROL)
             byte[] autoFocusData = new byte[1];
             autoFocusData[0] = 0;
             uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
                 0x01, // SET_CUR
                 0x0800, // CT_FOCUS_AUTO_CONTROL
-                videoControlInterface.getId() << 8 | 0x01,
+                wIndex,
                 autoFocusData,
                 autoFocusData.length,
                 1000
@@ -1364,10 +1330,10 @@ public class UsbExternalCamera extends CordovaPlugin {
             data[1] = (byte) ((absoluteValue >> 8) & 0xFF);
             
             int result = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
+                UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
                 0x01, // SET_CUR
-                0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
-                videoControlInterface.getId() << 8 | 0x01,
+                0x0600, // CT_FOCUS_ABSOLUTE_CONTROL (2 bytes, LE)
+                wIndex,
                 data,
                 data.length,
                 1000
@@ -1379,6 +1345,9 @@ public class UsbExternalCamera extends CordovaPlugin {
             } else {
                 callbackContext.error("Failed to set Focus Absolute: " + result);
             }
+            
+            // Ripristina la sessione Camera2
+            resumeCameraAfterUvc();
             
         } catch (Exception e) {
             Log.e(TAG, "Error setting UVC Focus Absolute", e);
@@ -1437,6 +1406,13 @@ public class UsbExternalCamera extends CordovaPlugin {
                 return false;
             }
             
+            // Salva device e bInterfaceNumber
+            uvcDevice = logitechDevice;
+            vcInterfaceNumber = videoControlInterface.getId();
+            
+            // Scopri gli entity ID reali dal descriptor
+            discoverUvcEntities();
+            
             // Leggi il range del Focus Absolute
             readFocusAbsoluteRange();
             
@@ -1451,13 +1427,14 @@ public class UsbExternalCamera extends CordovaPlugin {
 
     private void readFocusAbsoluteRange() {
         try {
+            int wIndex = getWIndexForCameraTerminal();
             // GET_MIN
             byte[] minData = new byte[2];
             int result = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
                 0x82, // GET_MIN
-                0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
-                videoControlInterface.getId() << 8 | 0x01,
+                0x0600, // CT_FOCUS_ABSOLUTE_CONTROL
+                wIndex,
                 minData,
                 minData.length,
                 1000
@@ -1470,10 +1447,10 @@ public class UsbExternalCamera extends CordovaPlugin {
             // GET_MAX
             byte[] maxData = new byte[2];
             result = uvcConnection.controlTransfer(
-                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01, // USB_RECIP_INTERFACE = 0x01
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
                 0x83, // GET_MAX
-                0x0900, // CT_FOCUS_ABSOLUTE_CONTROL
-                videoControlInterface.getId() << 8 | 0x01,
+                0x0600, // CT_FOCUS_ABSOLUTE_CONTROL
+                wIndex,
                 maxData,
                 maxData.length,
                 1000
@@ -1497,42 +1474,201 @@ public class UsbExternalCamera extends CordovaPlugin {
             callbackContext.error("Failed to initialize UVC connection");
             return true;
         }
+        // Sospendi eventuale preview per evitare conflitti
+        suspendCameraForUvc();
         
         StringBuilder debug = new StringBuilder();
         debug.append("UVC Debug Info:\n");
-        debug.append("Interface ID: ").append(videoControlInterface.getId()).append("\n");
+        debug.append("Interface (VC) number: ").append(vcInterfaceNumber).append("\n");
+        debug.append("CameraTerminalId: ").append(cameraTerminalId).append(" ProcessingUnitId: ").append(processingUnitId).append("\n");
         
-        // Prova a leggere le capacità del focus auto
-        for (int unitId = 1; unitId <= 3; unitId++) {
-            for (int selector : new int[]{0x0800, 0x0100, 0x0200}) {
-                try {
-                    byte[] data = new byte[1];
-                    int result = uvcConnection.controlTransfer(
-                        UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | 0x01,
-                        0x81, // GET_CUR
-                        selector,
-                        (videoControlInterface.getId() << 8) | unitId,
-                        data,
-                        data.length,
-                        1000
-                    );
-                    
-                    if (result >= 0) {
-                        debug.append(String.format("Unit %d, Selector 0x%04X: SUCCESS (value: %d)\n", 
-                            unitId, selector, data[0] & 0xFF));
-                    } else {
-                        debug.append(String.format("Unit %d, Selector 0x%04X: FAILED (%d)\n", 
-                            unitId, selector, result));
-                    }
-                } catch (Exception e) {
-                    debug.append(String.format("Unit %d, Selector 0x%04X: EXCEPTION (%s)\n", 
-                        unitId, selector, e.getMessage()));
-                }
-            }
+        int wIndex = getWIndexForCameraTerminal();
+        // GET_INFO for CT_FOCUS_AUTO_CONTROL
+        try {
+            byte[] info = new byte[1];
+            int r = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                0x86, // GET_INFO
+                0x0800,
+                wIndex,
+                info,
+                info.length,
+                1000
+            );
+            debug.append("CT_FOCUS_AUTO_CONTROL GET_INFO: ").append(r >= 0 ? (info[0] & 0xFF) : r).append("\n");
+        } catch (Exception e) {
+            debug.append("CT_FOCUS_AUTO_CONTROL GET_INFO EXC: ").append(e.getMessage()).append("\n");
+        }
+        // GET_CUR for CT_FOCUS_AUTO_CONTROL
+        try {
+            byte[] cur = new byte[1];
+            int r = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                0x81, // GET_CUR
+                0x0800,
+                wIndex,
+                cur,
+                cur.length,
+                1000
+            );
+            debug.append("CT_FOCUS_AUTO_CONTROL GET_CUR: ").append(r >= 0 ? (cur[0] & 0xFF) : r).append("\n");
+        } catch (Exception e) {
+            debug.append("CT_FOCUS_AUTO_CONTROL GET_CUR EXC: ").append(e.getMessage()).append("\n");
+        }
+        // MIN/MAX for CT_FOCUS_ABSOLUTE_CONTROL
+        try {
+            byte[] min = new byte[2];
+            int rmin = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                0x82, // GET_MIN
+                0x0600,
+                wIndex,
+                min,
+                min.length,
+                1000
+            );
+            byte[] max = new byte[2];
+            int rmax = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_CLASS | UsbConstants.USB_RECIP_INTERFACE,
+                0x83, // GET_MAX
+                0x0600,
+                wIndex,
+                max,
+                max.length,
+                1000
+            );
+            debug.append("CT_FOCUS_ABSOLUTE_CONTROL MIN/MAX: ")
+                 .append(rmin >= 0 ? ((min[1] << 8) | (min[0] & 0xFF)) : rmin)
+                 .append("/")
+                 .append(rmax >= 0 ? ((max[1] << 8) | (max[0] & 0xFF)) : rmax)
+                 .append("\n");
+        } catch (Exception e) {
+            debug.append("CT_FOCUS_ABSOLUTE_CONTROL EXC: ").append(e.getMessage()).append("\n");
         }
         
         Log.d(TAG, debug.toString());
         callbackContext.success(debug.toString());
+        
+        // Ripristina la preview
+        resumeCameraAfterUvc();
         return true;
+    }
+
+    // Helper: compone wIndex = (bInterfaceNumber << 8) | bTerminalID
+    private int getWIndexForCameraTerminal() {
+        int iface = vcInterfaceNumber >= 0 ? vcInterfaceNumber : (videoControlInterface != null ? videoControlInterface.getId() : 0);
+        int term = cameraTerminalId > 0 ? cameraTerminalId : 0x01;
+        return ((iface & 0xFF) << 8) | (term & 0xFF);
+    }
+
+    // Sospende la sessione Camera2 per i control transfer UVC
+    private void suspendCameraForUvc() {
+        try {
+            if (captureSession != null) {
+                captureSession.stopRepeating();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    // Ripristina la preview con le impostazioni correnti
+    private void resumeCameraAfterUvc() {
+        try {
+            if (captureSession != null && cameraDevice != null && imageReader != null) {
+                CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                builder.addTarget(imageReader.getSurface());
+                if (autofocusDisabled) {
+                    builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
+                    Float minFocusDistance = cameraManager.getCameraCharacteristics(externalCameraId)
+                            .get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+                    if (minFocusDistance != null && minFocusDistance > 0) {
+                        builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
+                    }
+                    builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
+                } else {
+                    builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO);
+                    builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE);
+                    builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+                    builder.set(CaptureRequest.CONTROL_AE_LOCK, false);
+                }
+                captureSession.setRepeatingRequest(builder.build(), null, backgroundHandler);
+                isPreviewActive = true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to resume preview after UVC control", e);
+        }
+    }
+
+    // Legge e interpreta i descriptor per ottenere bInterfaceNumber e entity ID corretti
+    private void discoverUvcEntities() {
+        try {
+            if (uvcConnection == null || uvcDevice == null || videoControlInterface == null) return;
+
+            // Primo step: leggi i primi 9 byte per wTotalLength
+            byte[] cfg9 = new byte[9];
+            int n = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | UsbConstants.USB_RECIP_DEVICE,
+                0x06, // GET_DESCRIPTOR
+                (0x02 << 8) | 0, // CONFIGURATION descriptor, index 0
+                0,
+                cfg9,
+                cfg9.length,
+                1000
+            );
+            if (n < 9) return;
+            int totalLength = (cfg9[3] & 0xFF) << 8 | (cfg9[2] & 0xFF);
+            if (totalLength < 9) return;
+
+            byte[] cfg = new byte[Math.min(1024, Math.max(totalLength, 256))];
+            n = uvcConnection.controlTransfer(
+                UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | UsbConstants.USB_RECIP_DEVICE,
+                0x06,
+                (0x02 << 8) | 0,
+                0,
+                cfg,
+                cfg.length,
+                1000
+            );
+            if (n <= 0) return;
+
+            int offset = 0;
+            int currentInterface = -1;
+            int currentClass = -1;
+            int currentSubclass = -1;
+            boolean inVideoControl = false;
+
+            while (offset + 2 <= n) {
+                int bLength = cfg[offset] & 0xFF;
+                if (bLength == 0 || offset + bLength > n) break;
+                int bDescriptorType = cfg[offset + 1] & 0xFF;
+
+                if (bDescriptorType == 0x04 && bLength >= 9) { // INTERFACE
+                    currentInterface = cfg[offset + 2] & 0xFF; // bInterfaceNumber
+                    currentClass = cfg[offset + 5] & 0xFF;      // bInterfaceClass
+                    currentSubclass = cfg[offset + 6] & 0xFF;   // bInterfaceSubClass
+                    inVideoControl = (currentClass == 14 && currentSubclass == 1);
+                    if (inVideoControl) {
+                        vcInterfaceNumber = currentInterface;
+                    }
+                } else if (bDescriptorType == 0x24 && bLength >= 3 && inVideoControl) { // CS_INTERFACE
+                    int subType = cfg[offset + 2] & 0xFF;
+                    if (subType == 0x02 && bLength >= 8) { // VC_INPUT_TERMINAL
+                        int bTerminalID = cfg[offset + 3] & 0xFF;
+                        int wTerminalType = (cfg[offset + 5] & 0xFF) << 8 | (cfg[offset + 4] & 0xFF);
+                        if (wTerminalType == 0x0201) { // ITT_CAMERA
+                            cameraTerminalId = bTerminalID;
+                        }
+                    } else if (subType == 0x05 && bLength >= 6) { // VC_PROCESSING_UNIT
+                        int bUnitID = cfg[offset + 3] & 0xFF;
+                        processingUnitId = bUnitID;
+                    }
+                }
+
+                offset += bLength;
+            }
+
+            Log.d(TAG, "UVC entities: iface=" + vcInterfaceNumber + ", CT=" + cameraTerminalId + ", PU=" + processingUnitId);
+        } catch (Exception e) {
+            Log.w(TAG, "discoverUvcEntities failed", e);
+        }
     }
 }
